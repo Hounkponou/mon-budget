@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Mon Budget — Suivi en temps réel</title>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://apis.google.com/js/api.js" async defer></script>
 <style>
 :root{
   --bg:#f4f6fb; --panel:#ffffff; --panel-2:#f8fafc; --border:#e6e9f0; --text:#1a2130;
@@ -202,6 +203,7 @@ function uid(){ return 't'+Math.random().toString(36).slice(2,9); }
 /* Identifiant OAuth « Web » (public, non secret). Renseigné par le propriétaire de l'app,
    ou saisissable dans Réglages. Créé une fois sur console.cloud.google.com. */
 const GOOGLE_CLIENT_ID = '85707299746-45mcotl9l1k1g1vuauo02ec000i2kq4l.apps.googleusercontent.com';
+const GOOGLE_API_KEY = ''; // ← clé API navigateur (pour « Ouvrir un budget partagé »/Picker), ou champ Réglages
 const OAUTH_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 const SHEET_TITLE = 'Mon Budget — données';
 const DATA_TAB = 'budget';           // onglet technique contenant les données (JSON fractionné)
@@ -226,6 +228,7 @@ let googleUser = localStorage.getItem('mb_email')||'';
 let sheetId = localStorage.getItem('mb_sheetid')||'';
 
 function clientId(){ return GOOGLE_CLIENT_ID || localStorage.getItem('mb_clientid') || ''; }
+function apiKey(){ return GOOGLE_API_KEY || localStorage.getItem('mb_apikey') || ''; }
 function isSignedIn(){ return !!(accessToken && Date.now()<tokenExp); }
 function syncConfigured(){ return isSignedIn() && !!sheetId; }
 
@@ -382,6 +385,48 @@ function signOutGoogle(){
   accessToken=null; tokenExp=0; googleUser='';
   localStorage.removeItem('mb_email');
   setSync('signedout'); render(); toast('Déconnecté');
+}
+
+/* --- Ouvrir un budget partagé (Google Picker) --- */
+let pickerReady=false;
+function loadPicker(){
+  return new Promise((resolve,reject)=>{
+    if(pickerReady && window.google && google.picker) return resolve();
+    if(!window.gapi){ reject(new Error('gapi-absent')); return; }
+    gapi.load('picker',{callback:()=>{ pickerReady=true; resolve(); }, onerror:()=>reject(new Error('picker-load'))});
+  });
+}
+async function openSharedBudget(){
+  if(!isSignedIn()){ toast('Connecte-toi d\'abord avec Google'); return; }
+  if(!apiKey()){ toast('Clé API manquante — voir Réglages'); return; }
+  try{
+    await ensureToken();
+    await loadPicker();
+    const mine=new google.picker.DocsView(google.picker.ViewId.SPREADSHEETS).setLabel('Mes fichiers');
+    const shared=new google.picker.DocsView(google.picker.ViewId.SPREADSHEETS).setOwnedByMe(false).setLabel('Partagés avec moi');
+    const picker=new google.picker.PickerBuilder()
+      .setOAuthToken(accessToken)
+      .setDeveloperKey(apiKey())
+      .setTitle('Choisir un budget à partager')
+      .addView(shared).addView(mine)
+      .setCallback(pickerCallback)
+      .build();
+    picker.setVisible(true);
+  }catch(e){ toast('Sélecteur indisponible ('+(e.message||'')+')'); }
+}
+async function pickerCallback(data){
+  if(!data || data.action!==google.picker.Action.PICKED) return;
+  const doc=data.docs && data.docs[0]; if(!doc) return;
+  sheetId=doc.id; localStorage.setItem('mb_sheetid',sheetId);
+  localStorage.setItem('mb_shared','1');
+  setSync('syncing'); toast('Ouverture du budget partagé…');
+  const r=await syncPull(); render();
+  toast(r.ok?'Budget partagé chargé ✓':'Lecture impossible (accès refusé ?)');
+}
+function useOwnBudget(){
+  localStorage.removeItem('mb_shared'); sheetId=''; localStorage.removeItem('mb_sheetid');
+  setSync('syncing'); toast('Retour à ton budget…');
+  ensureSpreadsheet().then(()=>syncPull()).then(()=>render());
 }
 async function initSync(){
   updateSyncChip();
@@ -741,15 +786,29 @@ function viewSettings(){
   <div class="card section">
     <h2>🔗 Connexion Google</h2>
     ${accessToken? `
-      <p class="hint">Connecté${googleUser?' en tant que <b>'+esc(googleUser)+'</b>':''}. Ton budget est enregistré automatiquement
-      dans un Google Sheet (<b>${esc(SHEET_TITLE)}</b>) de ton Drive, et disponible sur tous tes appareils.</p>
+      <p class="hint">Connecté${googleUser?' en tant que <b>'+esc(googleUser)+'</b>':''}.
+      ${localStorage.getItem('mb_shared')?'Tu utilises un <b>budget partagé</b>.':'Ton budget est enregistré dans un Google Sheet (<b>'+esc(SHEET_TITLE)+'</b>) de ton Drive'}, sur tous tes appareils.</p>
       <div class="toolbar" style="margin-top:12px">
         <button class="btn" id="gPush">⭱ Sauvegarder maintenant</button>
         <button class="btn ghost" id="gPull">⭳ Recharger</button>
         ${sheetId?`<a class="btn ghost" href="https://docs.google.com/spreadsheets/d/${esc(sheetId)}" target="_blank" rel="noopener">Ouvrir le Sheet ↗</a>`:''}
         <div class="spacer"></div>
         <button class="btn ghost" id="gOut" style="color:var(--bad);border-color:var(--bad)">Se déconnecter</button>
-      </div>`
+      </div>
+      <div style="border-top:1px solid var(--border);margin:14px 0 12px"></div>
+      <h3 style="font-size:14px;margin-bottom:6px">👥 Budget partagé</h3>
+      <p class="hint">Ouvre le budget qu'une autre personne t'a partagé dans Google Drive (elle doit t'avoir donné l'accès en modification). Vous éditez alors le même budget.</p>
+      <div class="toolbar" style="margin-top:10px">
+        <button class="btn ghost" id="gPick">📂 Ouvrir un budget partagé</button>
+        ${localStorage.getItem('mb_shared')?'<button class="btn ghost" id="gOwn">↩ Revenir à mon budget</button>':''}
+      </div>
+      ${apiKey()?'':`
+      <div class="grid" style="grid-template-columns:1fr;gap:8px;margin-top:10px">
+        <label class="fld">Clé API Google (pour le sélecteur de fichiers — fournie par le propriétaire de l'app)
+          <input type="text" id="gApiKey" value="" placeholder="AIza…"></label>
+      </div>
+      <div class="toolbar" style="margin-top:8px"><button class="btn ghost" id="gSaveKey">Enregistrer la clé</button></div>`}
+      <p class="hint" style="margin-top:8px">⚠️ Si vous modifiez le budget partagé en même temps, la dernière sauvegarde l'emporte — pense à <b>Recharger</b> avant d'éditer.</p>`
     : `
       <p class="hint">Connecte-toi avec Google : un Google Sheet est créé automatiquement dans ton Drive pour
       sauvegarder ton budget. L'app n'accède qu'à ce fichier, rien d'autre dans ton Drive.</p>
@@ -939,6 +998,13 @@ function bindView(){
     const v=(document.getElementById('gClientId').value||'').trim();
     if(!/\.apps\.googleusercontent\.com$/.test(v)){ toast('Identifiant invalide (…apps.googleusercontent.com)'); return; }
     localStorage.setItem('mb_clientid',v); tokenClient=null; setupTokenClient(); render(); toast('Identifiant enregistré');
+  };
+  const gPick=document.getElementById('gPick'); if(gPick) gPick.onclick=()=>openSharedBudget();
+  const gOwn=document.getElementById('gOwn'); if(gOwn) gOwn.onclick=()=>{ if(confirm('Revenir à ton budget personnel ?')) useOwnBudget(); };
+  const gSaveKey=document.getElementById('gSaveKey'); if(gSaveKey) gSaveKey.onclick=()=>{
+    const v=(document.getElementById('gApiKey').value||'').trim();
+    if(!/^AIza[0-9A-Za-z_\-]{20,}$/.test(v)){ toast('Clé API invalide (commence par AIza…)'); return; }
+    localStorage.setItem('mb_apikey',v); render(); toast('Clé enregistrée');
   };
   bindTooltips();
 }
