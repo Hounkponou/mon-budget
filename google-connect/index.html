@@ -355,19 +355,27 @@ async function syncPushNow(){
 function scheduleSync(){ if(!syncConfigured()) return; clearTimeout(syncTimer); setSync('syncing'); syncTimer=setTimeout(syncPushNow,1400); }
 
 /* --- Connexion / déconnexion --- */
-async function signInGoogle(){
+// Ouvre la fenêtre Google DE FAÇON SYNCHRONE dans le clic (sinon Safari bloque le popup).
+// Tout le travail asynchrone (Drive/Sheets) se fait ensuite dans le callback.
+function signInGoogle(){
   if(!clientId()){ toast('Identifiant Google non configuré (voir Réglages)'); return; }
-  try{
-    setSync('syncing'); toast('Connexion à Google…');
-    await requestToken(true);
-    await fetchUserEmail();
-    await ensureSpreadsheet();
-    const first = STATE.txns.length===0;
-    if(first){ STATE=migrate({txns:deepcopy(STARTER),settings:{}}); }
-    await syncPull();
-    render(); toast('Connecté ✓');
-  }catch(e){ setSync('error','Connexion échouée'); render();
-    toast(e.message==='noclient'?'Config Google manquante':'Connexion refusée ou annulée'); }
+  if(!gisAvailable()){ toast('Google se charge… réessaie dans 2 s'); waitForGis().catch(()=>{}); return; }
+  if(!setupTokenClient()){ toast('Config Google manquante'); return; }
+  setSync('syncing'); toast('Connexion à Google…');
+  pendingAuth = async (resp)=>{
+    try{
+      if(!resp || !resp.access_token) throw new Error(resp && resp.error || 'noauth');
+      accessToken=resp.access_token;
+      tokenExp=Date.now()+(resp.expires_in?resp.expires_in*1000:3500*1000)-60000;
+      await fetchUserEmail();
+      await ensureSpreadsheet();
+      if(STATE.txns.length===0){ STATE=migrate({txns:deepcopy(STARTER),settings:{}}); }
+      await syncPull();
+      render(); toast('Connecté ✓');
+    }catch(e){ setSync('error','Connexion échouée'); render(); toast('Erreur : '+(e.message||'connexion')); }
+  };
+  try{ tokenClient.requestAccessToken({prompt:'consent'}); }
+  catch(e){ pendingAuth=null; setSync('error'); toast('Ouverture Google impossible'); }
 }
 function signOutGoogle(){
   try{ if(accessToken && window.google) google.accounts.oauth2.revoke(accessToken,()=>{}); }catch(e){}
