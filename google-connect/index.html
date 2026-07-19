@@ -154,6 +154,17 @@ body.landing .tabs,body.landing #yearSel,body.landing #monthSel{display:none}
 .hero .feat span{font-size:12.5px;color:var(--muted)}
 .gbtn{display:inline-flex;align-items:center;gap:11px;background:#fff;color:#3c4043;border:1px solid #dadce0;border-radius:11px;padding:12px 20px;font-size:15px;font-weight:600;cursor:pointer;box-shadow:var(--shadow);transition:box-shadow .15s}
 .gbtn:hover{box-shadow:var(--shadow-lg)}
+.prevrow{display:grid;grid-template-columns:1.25fr 160px 1fr 100px 92px;gap:10px;align-items:center;padding:11px 16px;border-bottom:1px solid var(--border)}
+.prevrow:last-child{border-bottom:none}
+.prevhead{font-size:11px;text-transform:uppercase;letter-spacing:.03em;color:var(--muted);font-weight:700;background:var(--panel-2)}
+.prevname{font-weight:650;font-size:13.5px;display:flex;align-items:center;gap:8px}
+.prevbudget{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted)}
+.prev-inp{width:92px;text-align:right}
+.prevreal{font-size:13px;text-align:right}
+.prevrest{font-weight:700;text-align:right;font-variant-numeric:tabular-nums}
+.prevtot{font-weight:800;background:var(--panel-2)}
+@media(max-width:720px){.prevrow{grid-template-columns:1fr auto;gap:4px 10px}.prevbar{display:none}.prevhead{display:none}
+  .prevname{grid-column:1}.prevbudget{grid-column:2;justify-self:end}.prevreal{grid-column:1;text-align:left}.prevrest{grid-column:2;justify-self:end}}
 .acctmenu{position:absolute;right:0;top:calc(100% + 6px);min-width:230px;background:var(--panel);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow-lg);padding:6px;z-index:80}
 .acctmenu .acctinfo{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:700;color:var(--muted);padding:8px 10px 2px}
 .acctmenu .acctemail{font-size:13px;font-weight:600;padding:0 10px 8px;border-bottom:1px solid var(--border);margin-bottom:6px;word-break:break-all}
@@ -236,6 +247,7 @@ function migrate(s){
   s.settings = s.settings || {};
   if(s.settings.startSavings==null) s.settings.startSavings = 0; // épargne de départ (à régler dans Réglages)
   if(!s.settings.budgets) s.settings.budgets = {};
+  if(!s.settings.forecast || typeof s.settings.forecast!=='object') s.settings.forecast = {}; // prévisions par mois : {"2026-07":{"BOUFFE":400,...}}
   if(!Array.isArray(s.settings.assets)) s.settings.assets = [];   // actifs (patrimoine)
   if(!Array.isArray(s.settings.liabs))  s.settings.liabs  = [];   // passifs (dettes patrimoine)
   s.settings.assets.forEach(a=>{ if(!a.id) a.id=uid(); });
@@ -601,6 +613,7 @@ function liabsSum(){ return (STATE.settings.liabs||[]).reduce((a,x)=>a+(+x.value
 /* ============ RENDER SHELL ============ */
 const TAB_DEFS = [
   ['dash','Tableau de bord','📊'],
+  ['prev','Prévision','📋'],
   ['txns','Transactions','🧾'],
   ['patri','Patrimoine','💎'],
   ['evo','Évolution','📈'],
@@ -659,6 +672,7 @@ function render(){
   const v = document.getElementById('view');
   if(isLanding()){ v.innerHTML = viewLanding(); bindView(); return; }
   if(TAB==='dash') v.innerHTML = viewDash();
+  else if(TAB==='prev') v.innerHTML = viewPrevision();
   else if(TAB==='txns') v.innerHTML = viewTxns();
   else if(TAB==='patri') v.innerHTML = viewPatrimoine();
   else if(TAB==='evo') v.innerHTML = viewEvo();
@@ -750,6 +764,62 @@ function viewDash(){
   <div class="section card">
     <h2>Progression sur ${y}</h2>
     ${yearBarsSVG(y)}
+  </div>`;
+}
+
+/* ---- Prévision ---- */
+function viewPrevision(){
+  const y=+CUR.slice(0,4), m=+CUR.slice(5,7)-1;
+  const s = monthStats(CUR);
+  const fc = monthForecast(CUR);
+  const rows = CONSO.map(c=>{
+    const prevu = catBudget(c);
+    const real = s.byCat[c]||0;
+    const rest = prevu - real;
+    const raw = (fc[c]!=null&&fc[c]!=='')? fc[c] : '';
+    const over = real>prevu && prevu>0;
+    const ratio = prevu>0? Math.min(100, real/prevu*100) : (real>0?100:0);
+    return `<div class="prevrow">
+      <div class="prevname"><span class="dot" style="background:${CAT_COLOR[c]}"></span>${CAT_LABEL[c]}</div>
+      <div class="prevbudget">Prévu <input type="number" step="10" min="0" class="prev-inp" data-cat="${c}" value="${raw}" placeholder="${prevu}"> €</div>
+      <div class="prevbar"><div class="track"><div class="fill" style="width:${ratio}%;background:${over?'var(--bad)':CAT_COLOR[c]}"></div></div></div>
+      <div class="prevreal muted">réalisé ${fmt(real)}</div>
+      <div class="prevrest ${rest<0?'neg':'pos'}">${over?'−':''}${fmt(Math.abs(rest))}</div>
+    </div>`;
+  }).join('');
+  const totPrev = CONSO.reduce((a,c)=>a+catBudget(c),0);
+  const totReal = s.conso;
+  const totRest = totPrev - totReal;
+  const nbPlanned = Object.keys(fc).length;
+
+  return `
+  <div class="section">
+    <div class="card">
+      <div class="rowbetween">
+        <h2>📋 Prévision — ${MONTHS_FR[m]} ${y}</h2>
+        <span class="chip">${nbPlanned} catégorie${nbPlanned>1?'s':''} planifiée${nbPlanned>1?'s':''}</span>
+      </div>
+      <p class="hint" style="margin-top:2px">Définis le montant <b>alloué</b> à chaque catégorie pour ce mois. Le « reste à dépenser » se calcule sur <b>prévu − réalisé</b>.</p>
+      <div class="toolbar" style="margin-top:12px">
+        <button class="btn ghost" id="prevCopyPrev">⧉ Copier ${MONTHS_FR[(m+11)%12].slice(0,3)}.</button>
+        <button class="btn ghost" id="prevApplyYear">📅 Appliquer à toute l'année ${y}</button>
+        <button class="btn ghost" id="prevFromReal">↺ Partir du réalisé</button>
+      </div>
+    </div>
+
+    <div class="card section" style="padding:0;overflow:hidden">
+      <div class="prevrow prevhead">
+        <div>Catégorie</div><div>Alloué (prévu)</div><div></div><div>Réalisé</div><div>Reste</div>
+      </div>
+      ${rows}
+      <div class="prevrow prevtot">
+        <div>Total</div>
+        <div>${fmt(totPrev)}</div><div></div>
+        <div class="muted">${fmt(totReal)}</div>
+        <div class="${totRest<0?'neg':'pos'}">${fmt(totRest)}</div>
+      </div>
+    </div>
+    <p class="hint" style="margin-top:10px">Astuce : renseigne un mois type, puis « Appliquer à toute l'année » pour dupliquer. Tu ajustes ensuite les mois particuliers.</p>
   </div>`;
 }
 
@@ -988,7 +1058,8 @@ function viewSettings(){
         </div></div>
     </div>
     <div class="card">
-      <h2>Budgets mensuels par catégorie</h2>
+      <h2>Budget par défaut par catégorie</h2>
+      <p class="hint" style="margin:-6px 0 10px">Utilisé quand aucune <b>prévision</b> n'est définie pour le mois (onglet Prévision).</p>
       ${budgetRows}
     </div>
   </div>
@@ -1138,7 +1209,23 @@ function suggestedBudget(c){
   for(const k of months){ const s=monthStats(k); const v=s.byCat[c]||0; if(v>0){sum+=v;n++;} }
   return n? Math.round(sum/n) : 0;
 }
-function catBudget(c){ const b=STATE.settings.budgets[c]; return (b!=null&&b!=='')? +b : suggestedBudget(c); }
+// Montant prévu (budget) pour une catégorie sur un mois donné :
+//   prévision du mois  →  budget par défaut (Réglages)  →  moyenne des réalisés 2026
+function catBudget(c, key){
+  key = key || CUR;
+  const f = STATE.settings.forecast && STATE.settings.forecast[key];
+  if(f && f[c]!=null && f[c]!=='') return +f[c];
+  const b = STATE.settings.budgets[c];
+  if(b!=null && b!=='') return +b;
+  return suggestedBudget(c);
+}
+function monthForecast(key){ return (STATE.settings.forecast && STATE.settings.forecast[key]) || {}; }
+function setForecast(key, c, val){
+  if(!STATE.settings.forecast[key]) STATE.settings.forecast[key]={};
+  if(val===''||val==null) delete STATE.settings.forecast[key][c];
+  else STATE.settings.forecast[key][c] = +val;
+  if(Object.keys(STATE.settings.forecast[key]).length===0) delete STATE.settings.forecast[key];
+}
 const GROUP_DEFAULT={'CHARGE COURANTE':'APPARTEMENT','BOUFFE':'COURSE','PERSONNEL':'PERSONNEL','IMPÔT':'IMPOSITION','DETTE':'DETTE','AIDE':'CARITATIVE','AUTRE':'AUTRE','EPARGNE':'EPARGNE','INVESTISSEMENT':'INVESTISSEMENT','ENTREE':'ENTREE'};
 function defaultGroup(c){ return GROUP_DEFAULT[c]||c; }
 function todayStamp(){ const d=new Date(); return String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0'); }
@@ -1155,8 +1242,8 @@ function catRemainCard(c, s){
     </div>
     <div class="track" style="margin-top:9px"><div class="fill" style="width:${Math.min(100,ratio*100)}%;background:${col}"></div></div>
     <div class="catcard-bot">
-      <span>${fmt(spent)} / ${fmt(budget)}</span>
-      <span>Budget <input class="budinput" type="number" step="10" min="0" data-bud="${c}" value="${budget}"> €</span>
+      <span>réalisé ${fmt(spent)} / prévu ${fmt(budget)}</span>
+      <span>Prévu <input class="budinput" type="number" step="10" min="0" data-bud="${c}" value="${budget}"> €</span>
     </div>
   </div>`;
 }
@@ -1199,8 +1286,22 @@ function bindView(){
   ['qaAmt','qaLbl'].forEach(id=>{ const e=document.getElementById(id); if(e) e.onkeydown=(ev)=>{ if(ev.key==='Enter'){ ev.preventDefault(); doQuickAdd(); } }; });
   // Budgets éditables en direct (cartes « reste à dépenser »)
   document.querySelectorAll('input.budinput[data-bud]').forEach(inp=>{
-    inp.onchange=()=>{ STATE.settings.budgets[inp.dataset.bud]=parseFloat(inp.value)||0; save(); FOCUS_QA=null; render(); };
+    inp.onchange=()=>{ setForecast(CUR, inp.dataset.bud, inp.value===''?'':(parseFloat(inp.value)||0)); save(); FOCUS_QA=null; render(); };
   });
+  // --- Prévision ---
+  document.querySelectorAll('input.prev-inp[data-cat]').forEach(inp=>{
+    inp.onchange=()=>{ setForecast(CUR, inp.dataset.cat, inp.value===''?'':(parseFloat(inp.value)||0)); save(); render(); };
+  });
+  const pcp=document.getElementById('prevCopyPrev');
+  if(pcp) pcp.onclick=()=>{ const y=+CUR.slice(0,4),m=+CUR.slice(5,7)-1; const prevK=m===0?mkey(y-1,11):mkey(y,m-1);
+    CONSO.forEach(c=> setForecast(CUR,c,catBudget(c,prevK))); save(); render(); toast('Prévision copiée de '+MONTHS_FR[(m+11)%12]); };
+  const pay=document.getElementById('prevApplyYear');
+  if(pay) pay.onclick=()=>{ if(!confirm('Appliquer la prévision de ce mois à TOUS les mois de l\'année ?')) return;
+    const y=+CUR.slice(0,4); const vals={}; CONSO.forEach(c=> vals[c]=catBudget(c,CUR));
+    for(let mm=0;mm<12;mm++){ const k=mkey(y,mm); CONSO.forEach(c=> setForecast(k,c,vals[c])); }
+    save(); render(); toast('Appliqué à toute l\'année '+y); };
+  const pfr=document.getElementById('prevFromReal');
+  if(pfr) pfr.onclick=()=>{ const st=monthStats(CUR); CONSO.forEach(c=> setForecast(CUR,c, st.byCat[c]||0)); save(); render(); toast('Prévision = réalisé du mois'); };
   // re-focus le montant après un ajout pour enchaîner
   if(FOCUS_QA){ const c=document.getElementById('qaCat'); const a=document.getElementById('qaAmt');
     if(c) c.value=FOCUS_QA; if(a) a.focus(); FOCUS_QA=null; }
