@@ -123,6 +123,20 @@ svg{display:block;max-width:100%}
 #errBar{max-width:1180px;margin:12px auto 0;padding:12px 16px;background:color-mix(in srgb,var(--bad) 12%,var(--panel));border:1px solid var(--bad);border-radius:12px;color:var(--text);font-size:13.5px;display:flex;gap:12px;align-items:flex-start}
 #errBar .x{margin-left:auto;cursor:pointer;color:var(--muted);font-weight:700;flex-shrink:0}
 #errBar code{word-break:break-all}
+.quickadd .qa-row{display:grid;grid-template-columns:180px 140px 1fr auto;gap:10px;align-items:center}
+@media(max-width:720px){.quickadd .qa-row{grid-template-columns:1fr 1fr}.quickadd .qa-row .btn{grid-column:1/-1}}
+.catgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px;margin-top:14px}
+.catcard{border:1px solid var(--border);border-radius:12px;padding:12px 14px;background:var(--panel-2);transition:box-shadow .15s}
+.catcard.flash{box-shadow:0 0 0 2px var(--accent)}
+.catcard-top{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.catname{font-weight:700;font-size:13.5px;display:flex;align-items:center;gap:7px}
+.catreste{font-weight:750;font-size:13.5px;white-space:nowrap}
+.catcard-bot{display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--muted);gap:8px;margin-top:6px}
+.budinput{width:66px;padding:3px 6px;font-size:12px;text-align:right}
+.rowbetween{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.bignum{font-size:23px;font-weight:800;letter-spacing:-.02em}
+.miniremain{display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:13px;border-bottom:1px solid var(--border)}
+.miniremain:last-child{border-bottom:none}
 .acctmenu{position:absolute;right:0;top:calc(100% + 6px);min-width:230px;background:var(--panel);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow-lg);padding:6px;z-index:80}
 .acctmenu .acctinfo{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:700;color:var(--muted);padding:8px 10px 2px}
 .acctmenu .acctemail{font-size:13px;font-weight:600;padding:0 10px 8px;border-bottom:1px solid var(--border);margin-bottom:6px;word-break:break-all}
@@ -192,6 +206,7 @@ let STATE = load();
 let CUR = pickDefaultMonth();
 let TAB = 'dash';
 let evoYear = 2026;
+let FOCUS_QA = null;   // catégorie à re-sélectionner après un ajout rapide
 
 function load(){
   try{
@@ -615,6 +630,8 @@ function viewDash(){
     return `<span class="pill ${up?'up':'down'}">${d>0?'▲':'▼'} ${fmt(Math.abs(d))}</span>`;
   }
 
+  const dBudget = CONSO.reduce((a,c)=>a+catBudget(c),0);
+  const dRemain = dBudget - s.conso;
   // donut des dépenses de conso
   const consoCats = CONSO.map(c=>({c,v:s.byCat[c]||0})).filter(x=>x.v>0).sort((a,b)=>b.v-a.v);
   const donut = donutSVG(consoCats.map(x=>({label:CAT_LABEL[x.c],value:x.v,color:CAT_COLOR[x.c]})), fmt(s.conso), 'Dépenses');
@@ -631,6 +648,8 @@ function viewDash(){
       <div class="val">${fmt(s.rev)}</div><div class="sub">${delta(s.rev,sp.rev)} vs ${MONTHS_FR[(m+11)%12].slice(0,3)}.</div></div>
     <div class="card kpi"><div class="label"><span class="dot" style="background:var(--bad)"></span>Dépenses</div>
       <div class="val">${fmt(s.conso)}</div><div class="sub">${delta(s.conso,sp.conso,true)} ${s.rev?pct(s.conso/s.rev)+' du revenu':''}</div></div>
+    <div class="card kpi"><div class="label"><span class="dot" style="background:var(--warn)"></span>Reste à dépenser</div>
+      <div class="val ${dRemain<0?'neg':'pos'}">${fmt(dRemain)}</div><div class="sub">sur ${fmt(dBudget)} de budget · <a href="#" id="goTxns" style="font-weight:600">gérer →</a></div></div>
     <div class="card kpi"><div class="label"><span class="dot" style="background:var(--save)"></span>Épargne du mois</div>
       <div class="val ${resteCls}">${fmt(s.epargneTot)}</div><div class="sub">dont ${fmt(s.saveExpl)} placés · reste <b class="${resteCls}">${fmt(s.reste)}</b></div></div>
     <div class="card kpi"><div class="label"><span class="dot" style="background:var(--accent)"></span>Taux d'épargne</div>
@@ -695,34 +714,43 @@ function viewTxns(){
       <td class="center"><button class="rowbtn" data-del="${t.id}" title="Supprimer la ligne">✕</button></td>
     </tr>`;
   }
+  const totBudget = CONSO.reduce((a,c)=>a+catBudget(c),0);
+  const totRemaining = totBudget - s.conso;
+  const catCards = CONSO.map(c=>catRemainCard(c,s)).join('');
+  const addOpts = CONSO.concat(SAVE_CATS,[INCOME]).map(c=>`<option value="${c}">${CAT_LABEL[c]}</option>`).join('');
+
   return `
   <div class="section">
-    <div class="toolbar">
-      <div class="chip">📅 ${MONTHS_FR[m]} ${y}</div>
-      <div class="chip">Revenus <b style="color:var(--good)">${fmt(s.rev)}</b></div>
-      <div class="chip">Dépenses <b style="color:var(--bad)">${fmt(s.conso)}</b></div>
-      <div class="chip">Reste <b class="${s.reste>=0?'pos':'neg'}">${fmt(s.reste)}</b></div>
-      <div class="spacer"></div>
-      <button class="btn" id="copyPrev">⧉ Copier le mois précédent</button>
+    <div class="card quickadd" style="background:linear-gradient(180deg,color-mix(in srgb,var(--accent) 6%,var(--panel)),var(--panel))">
+      <div class="rowbetween" style="margin-bottom:10px"><h2>➕ Ajouter une dépense — ${MONTHS_FR[m]} ${y}</h2>
+        <button class="btn ghost" id="copyPrev" style="padding:6px 11px;font-size:12.5px">⧉ Copier ${MONTHS_FR[(m+11)%12].slice(0,3)}.</button></div>
+      <div class="qa-row">
+        <select id="qaCat">${addOpts}</select>
+        <input id="qaAmt" type="number" step="0.01" inputmode="decimal" placeholder="Montant €">
+        <input id="qaLbl" type="text" placeholder="Libellé (optionnel — ex : Carrefour)">
+        <button class="btn" id="qaAdd">Ajouter</button>
+      </div>
+      <p class="hint" style="margin-top:8px">Ça s'additionne automatiquement dans la catégorie. Appuie sur <b>Entrée</b> pour enchaîner.</p>
     </div>
-    <div class="card" style="padding:0;overflow:hidden">
-      <div style="max-height:60vh;overflow:auto">
+
+    <div class="card">
+      <div class="rowbetween">
+        <h2>💰 Reste à dépenser — ${MONTHS_FR[m]}</h2>
+        <span class="bignum ${totRemaining<0?'neg':'pos'}">${fmt(totRemaining)}</span>
+      </div>
+      <p class="hint" style="margin-top:2px">Sur un budget total de ${fmt(totBudget)} · déjà dépensé ${fmt(s.conso)}. Ajuste chaque budget dans les cartes.</p>
+      <div class="catgrid">${catCards}</div>
+    </div>
+
+    <div class="card section" style="padding:0;overflow:hidden">
+      <div class="rowbetween" style="padding:14px 16px 4px"><h2>Détail des lignes</h2>
+        <span class="chip">Reste à épargner <b class="${s.reste>=0?'pos':'neg'}">${fmt(s.reste)}</b></span></div>
+      <div style="max-height:52vh;overflow:auto">
       <table class="tbl">
         <thead><tr><th>Ligne</th><th>Groupe</th><th class="num">Montant (${MONTHS_FR[m].slice(0,3)}.)</th><th></th></tr></thead>
-        <tbody>${body||'<tr><td colspan=4 class="empty">Aucune ligne</td></tr>'}</tbody>
+        <tbody>${body||'<tr><td colspan=4 class="empty">Aucune ligne — ajoute ta première dépense ci-dessus 👆</td></tr>'}</tbody>
       </table>
       </div>
-    </div>
-    <div class="card section">
-      <h2>Ajouter une ligne</h2>
-      <div class="addform">
-        <select id="naCat">${CAT_ORDER.map(c=>`<option value="${c}">${CAT_LABEL[c]}</option>`).join('')}</select>
-        <input id="naGrp" type="text" placeholder="Groupe (ex: ABONNEMENT)">
-        <input id="naLbl" type="text" placeholder="Libellé (ex: Spotify)">
-        <input id="naAmt" type="number" step="0.01" placeholder="Montant €">
-        <button class="btn" id="naAdd">+ Ajouter</button>
-      </div>
-      <p class="hint" style="margin-top:8px">La ligne est créée pour <b>${MONTHS_FR[m]} ${y}</b>. Tu peux ensuite renseigner les autres mois en changeant de mois en haut.</p>
     </div>
   </div>`;
 }
@@ -974,6 +1002,28 @@ function suggestedBudget(c){
   for(const k of months){ const s=monthStats(k); const v=s.byCat[c]||0; if(v>0){sum+=v;n++;} }
   return n? Math.round(sum/n) : 0;
 }
+function catBudget(c){ const b=STATE.settings.budgets[c]; return (b!=null&&b!=='')? +b : suggestedBudget(c); }
+const GROUP_DEFAULT={'CHARGE COURANTE':'APPARTEMENT','BOUFFE':'COURSE','PERSONNEL':'PERSONNEL','IMPÔT':'IMPOSITION','DETTE':'DETTE','AIDE':'CARITATIVE','AUTRE':'AUTRE','EPARGNE':'EPARGNE','INVESTISSEMENT':'INVESTISSEMENT','ENTREE':'ENTREE'};
+function defaultGroup(c){ return GROUP_DEFAULT[c]||c; }
+function todayStamp(){ const d=new Date(); return String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0'); }
+// carte « reste à dépenser » d'une catégorie
+function catRemainCard(c, s){
+  const spent=s.byCat[c]||0, budget=catBudget(c), remaining=budget-spent;
+  const ratio=budget>0? spent/budget : (spent>0?1:0);
+  const over=budget>0 && spent>budget;
+  const col=over?'var(--bad)':(ratio>0.85?'var(--warn)':CAT_COLOR[c]);
+  return `<div class="catcard" data-cat="${c}">
+    <div class="catcard-top">
+      <span class="catname"><span class="dot" style="background:${CAT_COLOR[c]}"></span>${CAT_LABEL[c]}</span>
+      <span class="catreste ${remaining<0?'neg':'pos'}">${over?'−':''}${fmt(Math.abs(remaining))}</span>
+    </div>
+    <div class="track" style="margin-top:9px"><div class="fill" style="width:${Math.min(100,ratio*100)}%;background:${col}"></div></div>
+    <div class="catcard-bot">
+      <span>${fmt(spent)} / ${fmt(budget)}</span>
+      <span>Budget <input class="budinput" type="number" step="10" min="0" data-bud="${c}" value="${budget}"> €</span>
+    </div>
+  </div>`;
+}
 function bindView(){
   // édition inline des montants
   document.querySelectorAll('input.editval[data-id]').forEach(inp=>{
@@ -989,17 +1039,35 @@ function bindView(){
       STATE.txns = STATE.txns.filter(x=>x.id!==b.dataset.del); save(); render(); toast('Ligne supprimée');
     }
   });
-  const add = document.getElementById('naAdd');
-  if(add) add.onclick=()=>{
-    const cat=document.getElementById('naCat').value;
-    const grp=document.getElementById('naGrp').value.trim().toUpperCase()||cat;
-    const lbl=document.getElementById('naLbl').value.trim();
-    const amt=parseFloat(document.getElementById('naAmt').value);
-    if(!lbl){ toast('Donne un libellé'); return; }
-    const t={id:uid(),categorie:cat,groupe:grp,label:lbl,values:{}};
-    if(!isNaN(amt)&&amt!==0) t.values[CUR]=Math.round(amt*100)/100;
-    STATE.txns.push(t); save(); render(); toast('Ligne ajoutée');
+  const gt=document.getElementById('goTxns'); if(gt) gt.onclick=(e)=>{ e.preventDefault(); TAB='txns'; render(); };
+  // Ajout rapide
+  const qaAdd=document.getElementById('qaAdd');
+  const doQuickAdd=()=>{
+    const cat=document.getElementById('qaCat').value;
+    const amt=parseFloat(document.getElementById('qaAmt').value);
+    let lbl=(document.getElementById('qaLbl').value||'').trim();
+    if(isNaN(amt)||amt===0){ toast('Entre un montant'); const a=document.getElementById('qaAmt'); if(a) a.focus(); return; }
+    if(!lbl) lbl = CAT_LABEL[cat]+' '+todayStamp();
+    const t={id:uid(),categorie:cat,groupe:defaultGroup(cat),label:lbl,values:{}};
+    t.values[CUR]=Math.round(amt*100)/100;
+    STATE.txns.push(t); save();
+    const s2=monthStats(CUR);
+    const isConso=CONSO.includes(cat);
+    const rem = catBudget(cat)-(s2.byCat[cat]||0);
+    FOCUS_QA=cat; render();
+    toast(isConso
+      ? `+${fmt(amt)} · ${CAT_LABEL[cat]} : reste ${fmt(rem)}`
+      : `+${fmt(amt)} ajouté en ${CAT_LABEL[cat]}`);
   };
+  if(qaAdd) qaAdd.onclick=doQuickAdd;
+  ['qaAmt','qaLbl'].forEach(id=>{ const e=document.getElementById(id); if(e) e.onkeydown=(ev)=>{ if(ev.key==='Enter'){ ev.preventDefault(); doQuickAdd(); } }; });
+  // Budgets éditables en direct (cartes « reste à dépenser »)
+  document.querySelectorAll('input.budinput[data-bud]').forEach(inp=>{
+    inp.onchange=()=>{ STATE.settings.budgets[inp.dataset.bud]=parseFloat(inp.value)||0; save(); FOCUS_QA=null; render(); };
+  });
+  // re-focus le montant après un ajout pour enchaîner
+  if(FOCUS_QA){ const c=document.getElementById('qaCat'); const a=document.getElementById('qaAmt');
+    if(c) c.value=FOCUS_QA; if(a) a.focus(); FOCUS_QA=null; }
   const cp = document.getElementById('copyPrev');
   if(cp) cp.onclick=()=>{
     const y=+CUR.slice(0,4), m=+CUR.slice(5,7)-1;
