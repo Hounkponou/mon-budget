@@ -55,10 +55,14 @@ code{background:var(--panel-2);border:1px solid var(--border);border-radius:6px;
 .iconbtn:hover{border-color:var(--accent)}
 
 /* Tabs */
-.tabs{display:flex;gap:4px;overflow-x:auto;padding:10px 0 0}
-.tab{background:transparent;border:none;color:var(--muted);padding:10px 16px;border-radius:10px 10px 0 0;font-size:14.5px;font-weight:600;white-space:nowrap;border-bottom:2px solid transparent}
-.tab.active{color:var(--text);border-bottom-color:var(--accent)}
-.tab:hover{color:var(--text)}
+.tabs{display:flex;gap:5px;overflow-x:auto;padding:8px 0;scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
+.tab{display:inline-flex;align-items:center;gap:7px;background:transparent;border:none;color:var(--muted);padding:9px 14px;border-radius:11px;font-size:14px;font-weight:650;white-space:nowrap;cursor:pointer;transition:background .18s ease,color .18s ease,transform .1s ease}
+.tab .tico{font-size:15px;line-height:1}
+.tab:hover{color:var(--text);background:var(--panel-2)}
+.tab:active{transform:scale(.96)}
+.tab.active{color:#fff;background:linear-gradient(135deg,var(--accent),var(--accent-2));box-shadow:0 4px 12px color-mix(in srgb,var(--accent) 35%,transparent)}
+@media(max-width:600px){.tab .tlbl{display:none}.tab.active .tlbl{display:inline}.tab{padding:9px 12px}}
 
 /* Cards */
 .grid{display:grid;gap:14px}
@@ -137,6 +141,19 @@ svg{display:block;max-width:100%}
 .bignum{font-size:23px;font-weight:800;letter-spacing:-.02em}
 .miniremain{display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:13px;border-bottom:1px solid var(--border)}
 .miniremain:last-child{border-bottom:none}
+body.landing .tabs,body.landing #yearSel,body.landing #monthSel{display:none}
+.hero{max-width:700px;margin:5vh auto 0;text-align:center;padding:0 18px 40px}
+.hero .logo-lg{width:66px;height:66px;border-radius:18px;background:linear-gradient(135deg,var(--accent),var(--accent-2));display:grid;place-items:center;color:#fff;font-size:32px;margin:0 auto 18px;box-shadow:var(--shadow-lg)}
+.hero h1{font-size:30px;letter-spacing:-.03em;margin-bottom:10px}
+.hero p.lead{color:var(--muted);font-size:16px;max-width:540px;margin:0 auto 24px;line-height:1.55}
+.hero .feats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:28px 0}
+@media(max-width:640px){.hero .feats{grid-template-columns:1fr}}
+.hero .feat{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:16px 14px;text-align:left}
+.hero .feat .fi{font-size:20px}
+.hero .feat b{display:block;margin:6px 0 3px;font-size:14px}
+.hero .feat span{font-size:12.5px;color:var(--muted)}
+.gbtn{display:inline-flex;align-items:center;gap:11px;background:#fff;color:#3c4043;border:1px solid #dadce0;border-radius:11px;padding:12px 20px;font-size:15px;font-weight:600;cursor:pointer;box-shadow:var(--shadow);transition:box-shadow .15s}
+.gbtn:hover{box-shadow:var(--shadow-lg)}
 .acctmenu{position:absolute;right:0;top:calc(100% + 6px);min-width:230px;background:var(--panel);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow-lg);padding:6px;z-index:80}
 .acctmenu .acctinfo{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:700;color:var(--muted);padding:8px 10px 2px}
 .acctmenu .acctemail{font-size:13px;font-weight:600;padding:0 10px 8px;border-bottom:1px solid var(--border);margin-bottom:6px;word-break:break-all}
@@ -219,6 +236,10 @@ function migrate(s){
   s.settings = s.settings || {};
   if(s.settings.startSavings==null) s.settings.startSavings = 0; // épargne de départ (à régler dans Réglages)
   if(!s.settings.budgets) s.settings.budgets = {};
+  if(!Array.isArray(s.settings.assets)) s.settings.assets = [];   // actifs (patrimoine)
+  if(!Array.isArray(s.settings.liabs))  s.settings.liabs  = [];   // passifs (dettes patrimoine)
+  s.settings.assets.forEach(a=>{ if(!a.id) a.id=uid(); });
+  s.settings.liabs.forEach(a=>{ if(!a.id) a.id=uid(); });
   // enlève la ligne LIVRET A des txns éditables : c'est un calcul (reste = revenus - dépenses)
   s.txns = (s.txns||[]).filter(t=>!(t.label||'').toUpperCase().includes(LIVRET_LABEL));
   s.txns.forEach(t=>{ if(!t.id) t.id = uid(); });
@@ -555,19 +576,41 @@ function cumulSavings(uptoKey){
   }
   return cum;
 }
+// Patrimoine (tout l'historique) : épargne de départ + toutes les épargnes mensuelles jusqu'à uptoKey
+function allTimeSaved(uptoKey){
+  let cum = +STATE.settings.startSavings||0;
+  const months=allMonths();
+  for(const k of months){ if(k<=uptoKey) cum += monthStats(k).epargneTot; }
+  return cum;
+}
+// Total versé en investissement (PEA, ETF…) jusqu'à uptoKey
+function totalInvested(uptoKey){
+  let sum=0;
+  for(const t of STATE.txns){ if(t.categorie!=='INVESTISSEMENT') continue;
+    for(const k in t.values){ if(k<=uptoKey) sum+=+t.values[k]||0; } }
+  return sum;
+}
+// Valeur retenue des investissements : saisie manuelle si définie, sinon montant versé
+function investValueOf(uptoKey){
+  const v=STATE.settings.investValue;
+  return (v!=null && v!=='')? +v : totalInvested(uptoKey);
+}
+function assetsSum(){ return (STATE.settings.assets||[]).reduce((a,x)=>a+(+x.value||0),0); }
+function liabsSum(){ return (STATE.settings.liabs||[]).reduce((a,x)=>a+(+x.value||0),0); }
 
 /* ============ RENDER SHELL ============ */
 const TAB_DEFS = [
-  ['dash','Tableau de bord','▦'],
-  ['txns','Transactions','≣'],
-  ['evo','Évolution','◪'],
-  ['cats','Catégories','◑'],
-  ['set','Réglages','⚙']
+  ['dash','Tableau de bord','📊'],
+  ['txns','Transactions','🧾'],
+  ['patri','Patrimoine','💎'],
+  ['evo','Évolution','📈'],
+  ['cats','Catégories','🗂️'],
+  ['set','Réglages','⚙️']
 ];
 function renderTabs(){
   document.getElementById('tabs').innerHTML = TAB_DEFS.map(([id,label,ic])=>
-    `<button class="tab ${TAB===id?'active':''}" data-tab="${id}">${label}</button>`).join('');
-  document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{TAB=b.dataset.tab;render();});
+    `<button class="tab ${TAB===id?'active':''}" data-tab="${id}"><span class="tico">${ic}</span><span class="tlbl">${label}</span></button>`).join('');
+  document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{ TAB=b.dataset.tab; closeAcctMenu(); render(); document.querySelector('.wrap').scrollIntoView({block:'start',behavior:'smooth'}); });
 }
 function fillSelectors(){
   const y = +CUR.slice(0,4), m = +CUR.slice(5,7)-1;
@@ -592,11 +635,32 @@ document.getElementById('themeBtn').onclick=()=>{
 };
 
 /* ============ VUES ============ */
+function isLanding(){ return !accessToken; }
+const GOOGLE_G='<svg width="18" height="18" viewBox="0 0 48 48" style="flex-shrink:0"><path fill="#EA4335" d="M24 9.5c3.54 0 6.7 1.22 9.19 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>';
+function viewLanding(){
+  return `<div class="hero">
+    <div class="logo-lg">💶</div>
+    <h1>Mon Budget</h1>
+    <p class="lead">Suis tes revenus, tes dépenses, ton épargne et ton patrimoine — en temps réel.
+    Connecte-toi avec Google : tes données sont enregistrées dans un Google Sheet privé, dans <b>ton</b> Drive.</p>
+    <button class="gbtn" id="signIn">${GOOGLE_G} Se connecter avec Google</button>
+    ${clientId()?'':'<p class="hint" style="margin-top:14px;color:var(--bad)">⚠️ Identifiant Google non configuré — voir la doc de mise en place.</p>'}
+    <div class="feats">
+      <div class="feat"><div class="fi">🧾</div><b>Saisie éclair</b><span>Ajoute une dépense, elle s'additionne et ton « reste à dépenser » se met à jour en direct.</span></div>
+      <div class="feat"><div class="fi">💎</div><b>Patrimoine</b><span>Épargne, investissements, actifs et dettes : vois ta valeur nette d'un coup d'œil.</span></div>
+      <div class="feat"><div class="fi">🔒</div><b>Privé & synchro</b><span>Rien sur un serveur : tes chiffres restent entre ton navigateur et ton Google Drive.</span></div>
+    </div>
+    <p class="hint">En te connectant, un fichier « Mon Budget — données » est créé dans ton Drive. L'app n'accède qu'à ce fichier.</p>
+  </div>`;
+}
 function render(){
   renderTabs(); fillSelectors();
+  document.body.classList.toggle('landing', isLanding());
   const v = document.getElementById('view');
+  if(isLanding()){ v.innerHTML = viewLanding(); bindView(); return; }
   if(TAB==='dash') v.innerHTML = viewDash();
   else if(TAB==='txns') v.innerHTML = viewTxns();
+  else if(TAB==='patri') v.innerHTML = viewPatrimoine();
   else if(TAB==='evo') v.innerHTML = viewEvo();
   else if(TAB==='cats') v.innerHTML = viewCats();
   else if(TAB==='set') v.innerHTML = viewSettings();
@@ -751,6 +815,78 @@ function viewTxns(){
         <tbody>${body||'<tr><td colspan=4 class="empty">Aucune ligne — ajoute ta première dépense ci-dessus 👆</td></tr>'}</tbody>
       </table>
       </div>
+    </div>
+  </div>`;
+}
+
+/* ---- Patrimoine ---- */
+function viewPatrimoine(){
+  const cur=CUR, y=+cur.slice(0,4);
+  const invested = totalInvested(cur);
+  const investVal = investValueOf(cur);
+  const cash = allTimeSaved(cur) - invested;
+  const manualAssets = STATE.settings.assets||[];
+  const manualLiabs = STATE.settings.liabs||[];
+  const totalActifs = cash + investVal + assetsSum();
+  const totalPassifs = liabsSum();
+  const net = totalActifs - totalPassifs;
+  const hasOverride = STATE.settings.investValue!=null && STATE.settings.investValue!=='';
+  const plusValue = hasOverride ? (investVal - invested) : null;
+
+  const items=[{label:'Épargne',value:Math.max(0,cash),color:'var(--save)'},
+               {label:'Investissements',value:Math.max(0,investVal),color:'var(--invest)'}]
+    .concat(manualAssets.map((a,i)=>({label:a.label||'Actif',value:Math.max(0,+a.value||0),color:`var(--c${[1,6,8,9,3,7,0,2][i%8]})`})))
+    .filter(x=>x.value>0);
+  const donut = donutSVG(items, fmt(net), 'Net');
+
+  const assetRow=(a)=>`<div class="miniremain">
+     <input type="text" class="asset-lbl" data-aid="${a.id}" value="${esc(a.label||'')}" placeholder="Ex : Appartement" style="border:none;background:transparent;font-weight:650;flex:1;min-width:80px;padding:4px 0">
+     <span style="display:flex;align-items:center;gap:6px"><input type="number" class="asset-val" data-aid="${a.id}" value="${a.value!=null?a.value:''}" placeholder="0" style="width:120px;text-align:right"> €
+     <button class="rowbtn" data-adel="${a.id}" title="Supprimer">✕</button></span></div>`;
+  const liabRow=(a)=>`<div class="miniremain">
+     <input type="text" class="liab-lbl" data-lid="${a.id}" value="${esc(a.label||'')}" placeholder="Ex : Prêt immobilier" style="border:none;background:transparent;font-weight:650;flex:1;min-width:80px;padding:4px 0">
+     <span style="display:flex;align-items:center;gap:6px"><input type="number" class="liab-val" data-lid="${a.id}" value="${a.value!=null?a.value:''}" placeholder="0" style="width:120px;text-align:right"> €
+     <button class="rowbtn" data-ldel="${a.id}" title="Supprimer">✕</button></span></div>`;
+
+  return `
+  <div class="section">
+    <div class="two">
+      <div class="card">
+        <div class="rowbetween"><h2>💎 Patrimoine net</h2><span class="chip">${MONTHS_FR[+cur.slice(5,7)-1]} ${y}</span></div>
+        <div class="bignum ${net<0?'neg':''}" style="font-size:36px;margin:8px 0">${fmt(net)}</div>
+        <div style="display:flex;gap:20px;flex-wrap:wrap;color:var(--muted);font-size:13.5px">
+          <span>Actifs <b style="color:var(--good)">${fmt(totalActifs)}</b></span>
+          <span>Passifs <b style="color:var(--bad)">${fmt(totalPassifs)}</b></span>
+          <span>Investi (versé) <b>${fmt(invested)}</b>${plusValue!=null?` · <b class="${plusValue>=0?'pos':'neg'}">${plusValue>=0?'+':''}${fmt(plusValue)}</b> de +/- value`:''}</span>
+        </div>
+      </div>
+      <div class="card center">${items.length?donut:'<div class="empty">Ajoute des actifs pour voir la répartition</div>'}
+        <div class="legend" style="justify-content:center;margin-top:6px">${items.map(x=>`<div class="li"><span class="dot" style="background:${x.color}"></span>${esc(x.label)}</div>`).join('')}</div>
+      </div>
+    </div>
+
+    <div class="card section">
+      <h2>Actifs</h2>
+      <div class="miniremain"><span style="font-weight:650"><span class="dot" style="background:var(--save)"></span> Épargne (cash)</span>
+        <span class="muted" title="Calculé automatiquement depuis ton budget">${fmt(cash)} · auto</span></div>
+      <div class="miniremain"><span style="font-weight:650"><span class="dot" style="background:var(--invest)"></span> Investissements
+        <span class="hint">versé ${fmt(invested)}</span></span>
+        <span style="display:flex;align-items:center;gap:6px">Valeur <input type="number" id="investVal" value="${hasOverride?STATE.settings.investValue:''}" placeholder="${invested}" style="width:120px;text-align:right"> €</span></div>
+      ${manualAssets.map(assetRow).join('')}
+      <div class="toolbar" style="margin-top:12px"><button class="btn ghost" id="addAsset">+ Ajouter un actif</button>
+        <span class="hint">immobilier, voiture, crypto, valeur actuelle du PEA…</span></div>
+    </div>
+
+    <div class="card section">
+      <h2>Passifs (dettes)</h2>
+      ${manualLiabs.length?manualLiabs.map(liabRow).join(''):'<p class="hint">Aucun passif. Ajoute un prêt immobilier, un crédit conso…</p>'}
+      <div class="toolbar" style="margin-top:12px"><button class="btn ghost" id="addLiab">+ Ajouter un passif</button></div>
+    </div>
+
+    <div class="card section">
+      <h2>Évolution de l'épargne accumulée — ${y}</h2>
+      ${cumulLineSVG(y)}
+      <p class="hint">Épargne cumulée mois par mois (hors valorisation des actifs). La valeur des investissements et biens s'ajoute au patrimoine net ci-dessus.</p>
     </div>
   </div>`;
 }
@@ -1068,6 +1204,19 @@ function bindView(){
   // re-focus le montant après un ajout pour enchaîner
   if(FOCUS_QA){ const c=document.getElementById('qaCat'); const a=document.getElementById('qaAmt');
     if(c) c.value=FOCUS_QA; if(a) a.focus(); FOCUS_QA=null; }
+  // --- Patrimoine ---
+  const iv=document.getElementById('investVal');
+  if(iv) iv.onchange=()=>{ const v=iv.value.trim(); STATE.settings.investValue = v===''? null : (parseFloat(v)||0); save(); render(); };
+  const aA=document.getElementById('addAsset');
+  if(aA) aA.onclick=()=>{ STATE.settings.assets.push({id:uid(),label:'',value:null}); save(); render(); };
+  const aL=document.getElementById('addLiab');
+  if(aL) aL.onclick=()=>{ STATE.settings.liabs.push({id:uid(),label:'',value:null}); save(); render(); };
+  document.querySelectorAll('.asset-lbl').forEach(inp=> inp.onchange=()=>{ const a=STATE.settings.assets.find(x=>x.id===inp.dataset.aid); if(a){ a.label=inp.value; save(); } });
+  document.querySelectorAll('.asset-val').forEach(inp=> inp.onchange=()=>{ const a=STATE.settings.assets.find(x=>x.id===inp.dataset.aid); if(a){ a.value=inp.value===''?null:(parseFloat(inp.value)||0); save(); render(); } });
+  document.querySelectorAll('[data-adel]').forEach(b=> b.onclick=()=>{ STATE.settings.assets=STATE.settings.assets.filter(x=>x.id!==b.dataset.adel); save(); render(); });
+  document.querySelectorAll('.liab-lbl').forEach(inp=> inp.onchange=()=>{ const a=STATE.settings.liabs.find(x=>x.id===inp.dataset.lid); if(a){ a.label=inp.value; save(); } });
+  document.querySelectorAll('.liab-val').forEach(inp=> inp.onchange=()=>{ const a=STATE.settings.liabs.find(x=>x.id===inp.dataset.lid); if(a){ a.value=inp.value===''?null:(parseFloat(inp.value)||0); save(); render(); } });
+  document.querySelectorAll('[data-ldel]').forEach(b=> b.onclick=()=>{ STATE.settings.liabs=STATE.settings.liabs.filter(x=>x.id!==b.dataset.ldel); save(); render(); });
   const cp = document.getElementById('copyPrev');
   if(cp) cp.onclick=()=>{
     const y=+CUR.slice(0,4), m=+CUR.slice(5,7)-1;
