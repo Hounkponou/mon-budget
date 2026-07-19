@@ -214,7 +214,7 @@ function uid(){ return 't'+Math.random().toString(36).slice(2,9); }
    ou saisissable dans Réglages. Créé une fois sur console.cloud.google.com. */
 const GOOGLE_CLIENT_ID = '85707299746-45mcotl9l1k1g1vuauo02ec000i2kq4l.apps.googleusercontent.com';
 const GOOGLE_API_KEY = 'AIzaSyD1Exztu83LWs8qcPdJhxrTg9Kc7W1lWuY'; // clé API navigateur (Picker)
-const OAUTH_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+const OAUTH_SCOPE = 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email';
 const SHEET_TITLE = 'Mon Budget — données';
 const DATA_TAB = 'budget';           // onglet technique contenant les données (JSON fractionné)
 const CHUNK = 45000;                 // taille max d'une cellule (< 50000)
