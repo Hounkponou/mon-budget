@@ -119,6 +119,13 @@ svg{display:block;max-width:100%}
 .switch button{background:var(--panel);border:none;padding:7px 12px;font-size:13px;color:var(--muted);font-weight:650}
 .switch button.on{background:var(--accent);color:#fff}
 .chip{display:inline-flex;gap:6px;align-items:center;background:var(--panel-2);border:1px solid var(--border);border-radius:20px;padding:5px 11px;font-size:12.5px;font-weight:600}
+#acctBtn:hover{border-color:var(--accent)}
+.acctmenu{position:absolute;right:0;top:calc(100% + 6px);min-width:230px;background:var(--panel);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow-lg);padding:6px;z-index:80}
+.acctmenu .acctinfo{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:700;color:var(--muted);padding:8px 10px 2px}
+.acctmenu .acctemail{font-size:13px;font-weight:600;padding:0 10px 8px;border-bottom:1px solid var(--border);margin-bottom:6px;word-break:break-all}
+.acctitem{display:flex;width:100%;align-items:center;gap:9px;background:transparent;border:none;color:var(--text);font-size:13.5px;font-weight:600;padding:9px 10px;border-radius:8px;text-align:left}
+.acctitem:hover{background:var(--panel-2)}
+.acctitem.danger{color:var(--bad)}
 .setrow{display:flex;justify-content:space-between;align-items:center;gap:14px;padding:12px 0;border-bottom:1px solid var(--border)}
 .setrow:last-child{border-bottom:none}
 .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--text);color:var(--bg);padding:11px 18px;border-radius:12px;font-weight:650;font-size:14px;box-shadow:var(--shadow-lg);opacity:0;transition:.25s;z-index:200}
@@ -131,7 +138,10 @@ svg{display:block;max-width:100%}
     <div class="brand"><div class="logo">€</div>Mon Budget</div>
     <div class="spacer"></div>
     <div class="selects">
-      <span id="syncChip" class="chip" style="display:none;cursor:default"></span>
+      <div id="acctWrap" style="position:relative;display:none">
+        <button id="acctBtn" class="chip" style="cursor:pointer;gap:7px" aria-haspopup="true"></button>
+        <div id="acctMenu" class="acctmenu" style="display:none"></div>
+      </div>
       <select id="yearSel"></select>
       <select id="monthSel"></select>
       <button class="iconbtn" id="themeBtn" title="Thème">◐</button>
@@ -234,14 +244,34 @@ function syncConfigured(){ return isSignedIn() && !!sheetId; }
 
 function setSync(s,msg){ syncState=s; updateSyncChip(msg); }
 function updateSyncChip(msg){
-  const c=document.getElementById('syncChip'); if(!c) return;
-  if(!accessToken){ c.style.display='none'; return; }
-  c.style.display='inline-flex';
-  const map={ok:['var(--good)','Synchronisé'],syncing:['var(--warn)','Sync…'],error:['var(--bad)',msg||'Erreur'],offline:['var(--muted)','Hors-ligne'],signedout:['var(--muted)','Déconnecté'],off:['var(--muted)','—']};
+  const wrap=document.getElementById('acctWrap'); if(!wrap) return;
+  if(!accessToken && syncState!=='signedout'){ wrap.style.display='none'; return; }
+  wrap.style.display='';
+  const map={ok:['var(--good)','Synchronisé'],syncing:['var(--warn)','Synchronisation…'],error:['var(--bad)',msg||'Erreur'],offline:['var(--muted)','Hors-ligne'],signedout:['var(--muted)','Déconnecté'],off:['var(--muted)','—']};
   const [col,lbl]=map[syncState]||map.ok;
-  c.innerHTML=`<span class="dot" style="background:${col}"></span>${msg||lbl}`;
-  c.title=googleUser?('Compte : '+googleUser):'Google';
+  const email=googleUser||'Mon compte';
+  const shared=!!localStorage.getItem('mb_shared');
+  const btn=document.getElementById('acctBtn');
+  btn.innerHTML=`<span class="dot" style="background:${col}"></span>`+
+    `<span style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(email)}</span>`+
+    `<span style="opacity:.55;font-size:10px">▼</span>`;
+  btn.title=lbl+(googleUser?(' · '+googleUser):'');
+  const menu=document.getElementById('acctMenu');
+  menu.innerHTML=
+    `<div class="acctinfo"><span class="dot" style="background:${col}"></span> ${lbl}${shared?' · budget partagé':''}</div>`+
+    `<div class="acctemail">${esc(email)}</div>`+
+    (accessToken?`<button class="acctitem" id="mReload">↻ Recharger mes données</button>
+     <button class="acctitem" id="mSwitch">⇄ Changer de compte</button>
+     <button class="acctitem danger" id="mOut">⎋ Se déconnecter</button>`
+     :`<button class="acctitem" id="mIn">🔗 Se reconnecter</button>`);
+  const bind=(id,fn)=>{ const e=document.getElementById(id); if(e) e.onclick=()=>{ closeAcctMenu(); fn(); }; };
+  bind('mReload', async()=>{ toast('Chargement…'); const r=await syncPull(); render(); toast(r.ok?'Rechargé ✓':'Échec'); });
+  bind('mSwitch', ()=>switchAccount());
+  bind('mOut', ()=>{ if(confirm('Se déconnecter ? Tes données restent dans ton Google Sheet.')) signOutGoogle(); });
+  bind('mIn', ()=>signInGoogle());
 }
+function closeAcctMenu(){ const m=document.getElementById('acctMenu'); if(m) m.style.display='none'; }
+function toggleAcctMenu(){ const m=document.getElementById('acctMenu'); if(m) m.style.display = (m.style.display==='none'?'block':'none'); }
 
 /* --- GIS (Google Identity Services) --- */
 function gisAvailable(){ return !!(window.google && google.accounts && google.accounts.oauth2); }
@@ -360,7 +390,7 @@ function scheduleSync(){ if(!syncConfigured()) return; clearTimeout(syncTimer); 
 /* --- Connexion / déconnexion --- */
 // Ouvre la fenêtre Google DE FAÇON SYNCHRONE dans le clic (sinon Safari bloque le popup).
 // Tout le travail asynchrone (Drive/Sheets) se fait ensuite dans le callback.
-function signInGoogle(){
+function startSignIn(promptMode){
   if(!clientId()){ toast('Identifiant Google non configuré (voir Réglages)'); return; }
   if(!gisAvailable()){ toast('Google se charge… réessaie dans 2 s'); waitForGis().catch(()=>{}); return; }
   if(!setupTokenClient()){ toast('Config Google manquante'); return; }
@@ -374,11 +404,19 @@ function signInGoogle(){
       await ensureSpreadsheet();
       if(STATE.txns.length===0){ STATE=migrate({txns:deepcopy(STARTER),settings:{}}); }
       await syncPull();
-      render(); toast('Connecté ✓');
+      updateSyncChip(); render(); toast('Connecté'+(googleUser?' : '+googleUser:'')+' ✓');
     }catch(e){ setSync('error','Connexion échouée'); render(); toast('Erreur : '+(e.message||'connexion')); }
   };
-  try{ tokenClient.requestAccessToken({prompt:'consent'}); }
+  try{ tokenClient.requestAccessToken({prompt: promptMode||'consent'}); }
   catch(e){ pendingAuth=null; setSync('error'); toast('Ouverture Google impossible'); }
+}
+function signInGoogle(){ startSignIn('consent'); }
+function switchAccount(){
+  // révoque le jeton courant et rouvre le sélecteur de compte
+  try{ if(accessToken && window.google) google.accounts.oauth2.revoke(accessToken,()=>{}); }catch(e){}
+  accessToken=null; tokenExp=0; googleUser=''; localStorage.removeItem('mb_email');
+  sheetId=''; localStorage.removeItem('mb_sheetid'); localStorage.removeItem('mb_shared');
+  startSignIn('select_account');
 }
 function signOutGoogle(){
   try{ if(accessToken && window.google) google.accounts.oauth2.revoke(accessToken,()=>{}); }catch(e){}
@@ -1051,6 +1089,16 @@ function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg
 /* ============ INIT ============ */
 initTheme();
 render();
+// Menu de compte (header)
+(function(){
+  const btn=document.getElementById('acctBtn');
+  if(btn) btn.onclick=(e)=>{ e.stopPropagation(); toggleAcctMenu(); };
+  document.addEventListener('click',(e)=>{
+    const w=document.getElementById('acctWrap');
+    if(w && !w.contains(e.target)) closeAcctMenu();
+  });
+})();
+updateSyncChip();
 initSync();
 </script>
 </body>
