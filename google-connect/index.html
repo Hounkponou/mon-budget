@@ -732,7 +732,9 @@ function viewDash(){
     <div class="card kpi"><div class="label"><span class="dot" style="background:var(--bad)"></span>Dépenses</div>
       <div class="val">${fmt(s.conso)}</div><div class="sub">${delta(s.conso,sp.conso,true)} ${s.rev?pct(s.conso/s.rev)+' du revenu':''}</div></div>
     <div class="card kpi"><div class="label"><span class="dot" style="background:var(--warn)"></span>Reste à dépenser</div>
-      <div class="val ${dRemain<0?'neg':'pos'}">${fmt(dRemain)}</div><div class="sub">sur ${fmt(dBudget)} prévus · <a href="#" id="goTxns" style="font-weight:600">gérer →</a></div></div>
+      ${dBudget>0
+        ? `<div class="val ${dRemain<0?'neg':'pos'}">${fmt(dRemain)}</div><div class="sub">sur ${fmt(dBudget)} prévus · <a href="#" id="goTxns" style="font-weight:600">gérer →</a></div>`
+        : `<div class="val muted">—</div><div class="sub">aucun budget prévu · <a href="#" id="goPrev" style="font-weight:600">planifier →</a></div>`}</div>
     <div class="card kpi"><div class="label"><span class="dot" style="background:var(--good)"></span>Reste à épargner</div>
       <div class="val ${resteCls}">${fmt(s.reste)}</div><div class="sub">va sur ton livret en fin de mois</div></div>
     <div class="card kpi"><div class="label"><span class="dot" style="background:var(--save)"></span>Épargne du mois</div>
@@ -882,7 +884,9 @@ function viewTxns(){
         <h2>💰 Reste à dépenser — ${MONTHS_FR[m]}</h2>
         <span class="bignum ${totRemaining<0?'neg':'pos'}">${fmt(totRemaining)}</span>
       </div>
-      <p class="hint" style="margin-top:2px">Sur un budget total de ${fmt(totBudget)} · déjà dépensé ${fmt(s.conso)}. Ajuste chaque budget dans les cartes.</p>
+      <p class="hint" style="margin-top:2px">${totBudget>0
+        ? `Prévu ${fmt(totBudget)} − réalisé ${fmt(s.conso)} = reste ${fmt(totRemaining)}. Le prévu se règle dans l'onglet <b>Prévision</b> (ou dans les cartes).`
+        : `Aucun budget prévu pour ce mois — définis tes montants alloués dans l'onglet <b>Prévision</b> (ou directement dans les cartes).`}</p>
       <div class="catgrid">${catCards}</div>
     </div>
 
@@ -1049,10 +1053,10 @@ function viewCats(){
 /* ---- Réglages ---- */
 function viewSettings(){
   const budgetRows = CONSO.map(c=>{
-    const b = STATE.settings.budgets[c]!=null? STATE.settings.budgets[c] : suggestedBudget(c);
+    const b = STATE.settings.budgets[c];
     return `<div class="setrow"><div><span class="dot" style="background:${CAT_COLOR[c]}"></span> ${CAT_LABEL[c]}
-      <span class="hint">(moy. 2026 : ${fmt(suggestedBudget(c))})</span></div>
-      <input type="number" step="10" class="editval" data-budget="${c}" value="${b}"></div>`;
+      <span class="hint">(moy. réalisée : ${fmt(suggestedBudget(c))})</span></div>
+      <input type="number" step="10" class="editval" data-budget="${c}" value="${b!=null?b:''}" placeholder="${suggestedBudget(c)}"></div>`;
   }).join('');
   return `
   <div class="section grid" style="grid-template-columns:1fr 1fr;gap:14px">
@@ -1220,14 +1224,16 @@ function suggestedBudget(c){
   return n? Math.round(sum/n) : 0;
 }
 // Montant prévu (budget) pour une catégorie sur un mois donné :
-//   prévision du mois  →  budget par défaut (Réglages)  →  moyenne des réalisés 2026
+//   prévision du mois  →  budget par défaut (Réglages)  →  0 (rien de prévu)
+// Le « reste à dépenser » est STRICTEMENT : prévu − transactions saisies.
+// (la moyenne des réalisés n'est plus qu'une suggestion affichée, jamais utilisée en calcul)
 function catBudget(c, key){
   key = key || CUR;
   const f = STATE.settings.forecast && STATE.settings.forecast[key];
   if(f && f[c]!=null && f[c]!=='') return +f[c];
   const b = STATE.settings.budgets[c];
   if(b!=null && b!=='') return +b;
-  return suggestedBudget(c);
+  return 0;
 }
 function monthForecast(key){ return (STATE.settings.forecast && STATE.settings.forecast[key]) || {}; }
 function setForecast(key, c, val){
@@ -1273,6 +1279,7 @@ function bindView(){
     }
   });
   const gt=document.getElementById('goTxns'); if(gt) gt.onclick=(e)=>{ e.preventDefault(); TAB='txns'; render(); };
+  const gp=document.getElementById('goPrev'); if(gp) gp.onclick=(e)=>{ e.preventDefault(); TAB='prev'; render(); };
   // Ajout rapide
   const qaAdd=document.getElementById('qaAdd');
   const doQuickAdd=()=>{
@@ -1342,7 +1349,9 @@ function bindView(){
   const st=document.getElementById('setStart');
   if(st) st.onchange=()=>{ STATE.settings.startSavings=parseFloat(st.value)||0; save(); toast('Enregistré'); };
   document.querySelectorAll('[data-budget]').forEach(inp=> inp.onchange=()=>{
-    STATE.settings.budgets[inp.dataset.budget]=parseFloat(inp.value)||0; save(); toast('Budget enregistré');
+    if(inp.value==='') delete STATE.settings.budgets[inp.dataset.budget];
+    else STATE.settings.budgets[inp.dataset.budget]=parseFloat(inp.value)||0;
+    save(); toast('Budget enregistré');
   });
   document.querySelectorAll('#themeSw button').forEach(b=> b.onclick=()=>{
     const t=b.dataset.t; STATE.settings.theme=t||undefined;
