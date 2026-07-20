@@ -66,7 +66,10 @@ code{background:var(--panel-2);border:1px solid var(--border);border-radius:6px;
 
 /* Cards */
 .grid{display:grid;gap:14px}
-.kpis{grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-top:18px}
+.kpis{grid-template-columns:repeat(4,1fr);margin-top:18px}
+@media(max-width:980px){.kpis{grid-template-columns:repeat(2,1fr)}}
+.kpi{display:flex;flex-direction:column;min-height:108px}
+.kpi .sub{margin-top:auto;padding-top:4px;min-height:22px}
 .card{background:var(--panel);border:1px solid var(--border);border-radius:var(--r);padding:16px 18px;box-shadow:var(--shadow)}
 .kpi .label{font-size:12.5px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.03em;display:flex;align-items:center;gap:7px}
 .kpi .val{font-size:26px;font-weight:750;letter-spacing:-.02em;margin-top:8px}
@@ -573,9 +576,11 @@ function monthStats(k){
     else conso+=v;
   }
   const reste = rev - conso - saveExpl;      // = Livret A (reste à épargner)
-  const epargneTot = saveExpl + reste;        // épargne totale du mois
+  const ep  = byCat['EPARGNE']||0;            // épargne placée (hors invest)
+  const inv = byCat['INVESTISSEMENT']||0;     // investissement placé
+  const epargneTot = saveExpl + reste;        // épargne totale du mois (épargne+invest+reste)
   const tauxEp = rev? epargneTot/rev : 0;
-  return {rev, conso, saveExpl, reste, epargneTot, tauxEp, byCat};
+  return {rev, conso, saveExpl, ep, inv, reste, epargneTot, tauxEp, byCat};
 }
 function monthsOfYear(y){ return Array.from({length:12},(_,m)=>mkey(y,m)); }
 function cumulSavings(uptoKey){
@@ -727,13 +732,17 @@ function viewDash(){
     <div class="card kpi"><div class="label"><span class="dot" style="background:var(--bad)"></span>Dépenses</div>
       <div class="val">${fmt(s.conso)}</div><div class="sub">${delta(s.conso,sp.conso,true)} ${s.rev?pct(s.conso/s.rev)+' du revenu':''}</div></div>
     <div class="card kpi"><div class="label"><span class="dot" style="background:var(--warn)"></span>Reste à dépenser</div>
-      <div class="val ${dRemain<0?'neg':'pos'}">${fmt(dRemain)}</div><div class="sub">sur ${fmt(dBudget)} de budget · <a href="#" id="goTxns" style="font-weight:600">gérer →</a></div></div>
+      <div class="val ${dRemain<0?'neg':'pos'}">${fmt(dRemain)}</div><div class="sub">sur ${fmt(dBudget)} prévus · <a href="#" id="goTxns" style="font-weight:600">gérer →</a></div></div>
+    <div class="card kpi"><div class="label"><span class="dot" style="background:var(--good)"></span>Reste à épargner</div>
+      <div class="val ${resteCls}">${fmt(s.reste)}</div><div class="sub">va sur ton livret en fin de mois</div></div>
     <div class="card kpi"><div class="label"><span class="dot" style="background:var(--save)"></span>Épargne du mois</div>
-      <div class="val ${resteCls}">${fmt(s.epargneTot)}</div><div class="sub">dont ${fmt(s.saveExpl)} placés · reste <b class="${resteCls}">${fmt(s.reste)}</b></div></div>
+      <div class="val">${fmt(s.ep + s.reste)}</div><div class="sub">${fmt(s.ep)} placés + ${fmt(s.reste)} de reste</div></div>
+    <div class="card kpi"><div class="label"><span class="dot" style="background:var(--invest)"></span>Investissement du mois</div>
+      <div class="val">${fmt(s.inv)}</div><div class="sub">${delta(s.inv,sp.inv)} vs ${MONTHS_FR[(m+11)%12].slice(0,3)}.</div></div>
     <div class="card kpi"><div class="label"><span class="dot" style="background:var(--accent)"></span>Taux d'épargne</div>
-      <div class="val">${pct(s.tauxEp)}</div><div class="sub">objectif conseillé ≥ 20 %</div></div>
-    <div class="card kpi"><div class="label"><span class="dot" style="background:var(--invest)"></span>Épargne cumulée</div>
-      <div class="val">${fmt(cum)}</div><div class="sub">au ${MONTHS_FR[m]} ${y} (départ ${fmt(STATE.settings.startSavings)})</div></div>
+      <div class="val">${pct(s.tauxEp)}</div><div class="sub">épargne + invest. · objectif ≥ 20 %</div></div>
+    <div class="card kpi"><div class="label"><span class="dot" style="background:var(--c9)"></span>Épargne cumulée</div>
+      <div class="val">${fmt(cum)}</div><div class="sub">au ${MONTHS_FR[m]} ${y} · départ ${fmt(STATE.settings.startSavings)}</div></div>
   </div>
 
   <div class="two section">
@@ -752,7 +761,8 @@ function viewDash(){
       <h2>Équilibre du mois</h2>
       ${bar('Revenus', s.rev, 'var(--income)')}
       ${bar('Dépenses', s.conso, 'var(--bad)')}
-      ${bar('Placé (épargne/invest.)', s.saveExpl, 'var(--save)')}
+      ${bar('Épargne placée', s.ep, 'var(--save)')}
+      ${bar('Investissement', s.inv, 'var(--invest)')}
       <div style="border-top:1px solid var(--border);margin:12px 0"></div>
       <div class="barrow"><div class="nm" style="font-weight:800">Reste à épargner</div>
         <div class="track" style="background:transparent"></div>
