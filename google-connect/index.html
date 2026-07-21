@@ -715,12 +715,13 @@ function viewDash(){
   }
 
   const plan = spendPlan(CUR);                       // reste à dépenser sur catégories budgétées
-  const remainRows = plan.budgeted.map(c=>{
+  const remainRows = plan.active.map(c=>{
     const prevu=catBudget(c), real=s.byCat[c]||0, rest=prevu-real;
+    const noBud=!hasBudget(c);
     const ratio=prevu>0?Math.min(100,real/prevu*100):(real>0?100:0);
-    const over=real>prevu;
+    const over=prevu>0? real>prevu : real>0;
     return `<div class="barrow">
-      <div class="nm"><span class="dot" style="background:${CAT_COLOR[c]}"></span>${CAT_LABEL[c]}</div>
+      <div class="nm" title="${noBud?'Aucun budget défini':''}"><span class="dot" style="background:${noBud?'var(--muted)':CAT_COLOR[c]}"></span>${CAT_LABEL[c]}</div>
       <div class="track" title="${fmt(real)} / ${fmt(prevu)}"><div class="fill" style="width:${ratio}%;background:${over?'var(--bad)':(ratio>85?'var(--warn)':CAT_COLOR[c])}"></div></div>
       <div class="amt ${rest<0?'neg':'pos'}">${fmt(rest)}</div>
     </div>`;
@@ -745,9 +746,9 @@ function viewDash(){
     <div class="card kpi"><div class="label"><span class="dot" style="background:var(--bad)"></span>Dépenses</div>
       <div class="val">${fmt(s.conso)}</div><div class="sub">${delta(s.conso,sp.conso,true)} ${s.rev?pct(s.conso/s.rev)+' du revenu':''}</div></div>
     <div class="card kpi"><div class="label"><span class="dot" style="background:var(--warn)"></span>Reste à dépenser</div>
-      ${plan.budgeted.length
-        ? `<div class="val ${plan.reste<0?'neg':'pos'}">${fmt(plan.reste)}</div><div class="sub">sur ${fmt(plan.prevu)} prévus${plan.unplanned.length?` · ${fmt(plan.unplannedTotal)} hors budget`:''} · <a href="#" id="goTxns" style="font-weight:600">gérer →</a></div>`
-        : `<div class="val muted">—</div><div class="sub">rien de prévu ce mois · <a href="#" id="goPrev" style="font-weight:600">planifier →</a></div>`}</div>
+      ${plan.prevu>0
+        ? `<div class="val ${plan.reste<0?'neg':'pos'}">${fmt(plan.reste)}</div><div class="sub">budget ${fmt(plan.prevu)} − dépenses ${fmt(plan.realise)} · <a href="#" id="goTxns" style="font-weight:600">gérer →</a></div>`
+        : `<div class="val muted">—</div><div class="sub">aucun budget défini · <a href="#" id="goPrev" style="font-weight:600">planifier →</a></div>`}</div>
     <div class="card kpi"><div class="label"><span class="dot" style="background:var(--save)"></span>Épargne du mois</div>
       <div class="val">${fmt(s.ep + s.reste)}</div><div class="sub">${fmt(s.ep)} placés + ${fmt(s.reste)} au livret</div></div>
     <div class="card kpi"><div class="label"><span class="dot" style="background:var(--invest)"></span>Investissement du mois</div>
@@ -763,17 +764,17 @@ function viewDash(){
   <div class="card section">
     <div class="rowbetween">
       <h2>💰 Reste à dépenser par catégorie — ${MONTHS_FR[m]}</h2>
-      ${plan.budgeted.length? `<span class="bignum ${plan.reste<0?'neg':'pos'}">${fmt(plan.reste)}</span>` : `<a href="#" id="goPrev2" class="btn ghost" style="padding:6px 12px;font-size:13px">Planifier →</a>`}
+      ${plan.active.length? `<span class="bignum ${plan.reste<0?'neg':'pos'}">${fmt(plan.reste)}</span>` : `<a href="#" id="goPrev2" class="btn ghost" style="padding:6px 12px;font-size:13px">Planifier →</a>`}
     </div>
-    ${plan.budgeted.length? `
+    ${plan.active.length? `
       ${remainRows}
       <div class="barrow" style="border-top:1px solid var(--border);margin-top:8px;padding-top:10px">
         <div class="nm" style="font-weight:800">Total</div>
-        <div class="track" title="réalisé ${fmt(plan.realise)} / prévu ${fmt(plan.prevu)}"><div class="fill" style="width:${plan.prevu>0?Math.min(100,plan.realise/plan.prevu*100):0}%;background:${plan.reste<0?'var(--bad)':'var(--accent)'}"></div></div>
+        <div class="track" title="réalisé ${fmt(plan.realise)} / prévu ${fmt(plan.prevu)}"><div class="fill" style="width:${plan.prevu>0?Math.min(100,plan.realise/plan.prevu*100):(plan.realise>0?100:0)}%;background:${plan.reste<0?'var(--bad)':'var(--accent)'}"></div></div>
         <div class="amt ${plan.reste<0?'neg':'pos'}" style="font-weight:800">${fmt(plan.reste)}</div>
       </div>
-      <p class="hint" style="margin-top:8px">Prévu ${fmt(plan.prevu)} · réalisé ${fmt(plan.realise)}${plan.unplanned.length?` · <b>${fmt(plan.unplannedTotal)}</b> dépensés hors budget (${plan.unplanned.map(c=>CAT_LABEL[c]).join(', ')})`:''}</p>`
-    : `<div class="empty">Aucun budget prévu ce mois-ci. Va dans <b>Prévision</b> pour définir tes montants par catégorie.</div>`}
+      <p class="hint" style="margin-top:8px">Budget total ${fmt(plan.prevu)} − dépenses ${fmt(plan.realise)} = reste ${fmt(plan.reste)}.${plan.prevu===0?' Définis tes budgets dans <b>Prévision</b>.':''}</p>`
+    : `<div class="empty">Aucune dépense ni budget ce mois-ci. Va dans <b>Prévision</b> pour définir tes montants par catégorie.</div>`}
   </div>
 
   <div class="two section">
@@ -911,11 +912,11 @@ function viewTxns(){
     <div class="card">
       <div class="rowbetween">
         <h2>💰 Reste à dépenser — ${MONTHS_FR[m]}</h2>
-        <span class="bignum ${plan.budgeted.length? (totRemaining<0?'neg':'pos') : 'muted'}">${plan.budgeted.length? fmt(totRemaining) : '—'}</span>
+        <span class="bignum ${plan.prevu>0? (totRemaining<0?'neg':'pos') : 'muted'}">${plan.prevu>0? fmt(totRemaining) : '—'}</span>
       </div>
-      <p class="hint" style="margin-top:2px">${plan.budgeted.length
-        ? `Prévu ${fmt(plan.prevu)} − réalisé ${fmt(plan.realise)} = reste ${fmt(totRemaining)} sur ${plan.budgeted.length} catégorie${plan.budgeted.length>1?'s':''} budgétée${plan.budgeted.length>1?'s':''}.${plan.unplanned.length?` <b>${fmt(plan.unplannedTotal)}</b> dépensés hors budget (${plan.unplanned.map(c=>CAT_LABEL[c]).join(', ')}).`:''}`
-        : `Aucun budget prévu pour ce mois — définis tes montants alloués dans l'onglet <b>Prévision</b> (ou directement dans les cartes ci-dessous).`}</p>
+      <p class="hint" style="margin-top:2px">${plan.prevu>0
+        ? `Budget total ${fmt(plan.prevu)} − dépenses ${fmt(plan.realise)} = reste ${fmt(totRemaining)}. Chaque catégorie ci-dessous : prévu − réalisé, en direct.`
+        : `Aucun budget défini — saisis le montant « Prévu » de chaque catégorie ci-dessous (ou via l'onglet <b>Prévision</b>).`}</p>
       <div class="catgrid">${catCards}</div>
     </div>
 
@@ -1272,15 +1273,15 @@ function hasBudget(c, key){
   const b = STATE.settings.budgets[c];
   return (b!=null && b!=='');
 }
-// Reste à dépenser calculé UNIQUEMENT sur les catégories budgétées
+// Reste à dépenser GLOBAL = budget total − dépenses totales (TOUTES les catégories)
 function spendPlan(key){
   key = key || CUR;
   const s = monthStats(key);
-  const budgeted = CONSO.filter(c=>hasBudget(c,key));
-  const prevu = budgeted.reduce((a,c)=>a+catBudget(c,key),0);
-  const realise = budgeted.reduce((a,c)=>a+(s.byCat[c]||0),0);
-  const unplanned = CONSO.filter(c=>!hasBudget(c,key) && (s.byCat[c]||0)>0);
-  return {budgeted, prevu, realise, reste:prevu-realise, unplanned, unplannedTotal:unplanned.reduce((a,c)=>a+(s.byCat[c]||0),0)};
+  const prevu = CONSO.reduce((a,c)=>a+catBudget(c,key),0);          // budget de toutes les catégories
+  const realise = CONSO.reduce((a,c)=>a+(s.byCat[c]||0),0);          // = dépenses totales du mois
+  const active = CONSO.filter(c=> catBudget(c,key)>0 || (s.byCat[c]||0)>0); // catégories à afficher
+  const anyBudget = CONSO.some(c=>hasBudget(c,key));
+  return {prevu, realise, reste:prevu-realise, active, anyBudget};
 }
 function monthForecast(key){ return (STATE.settings.forecast && STATE.settings.forecast[key]) || {}; }
 function setForecast(key, c, val){
@@ -1300,14 +1301,12 @@ function catRemainCard(c, s){
   const col=over?'var(--bad)':(ratio>0.85?'var(--warn)':CAT_COLOR[c]);
   return `<div class="catcard${planned?'':' unplanned'}" data-cat="${c}">
     <div class="catcard-top">
-      <span class="catname"><span class="dot" style="background:${CAT_COLOR[c]}"></span>${CAT_LABEL[c]}</span>
-      ${planned
-        ? `<span class="catreste ${remaining<0?'neg':'pos'}">${over?'−':''}${fmt(Math.abs(remaining))}</span>`
-        : `<span class="catreste" style="color:var(--muted);font-weight:600;font-size:12px">à planifier</span>`}
+      <span class="catname"><span class="dot" style="background:${CAT_COLOR[c]}"></span>${CAT_LABEL[c]}${planned?'':' <span class="hint">(à budgéter)</span>'}</span>
+      <span class="catreste ${remaining<0?'neg':'pos'}">${fmt(remaining)}</span>
     </div>
-    <div class="track" style="margin-top:9px"><div class="fill" style="width:${planned?Math.min(100,ratio*100):0}%;background:${col}"></div></div>
+    <div class="track" style="margin-top:9px"><div class="fill" style="width:${Math.min(100,ratio*100)}%;background:${col}"></div></div>
     <div class="catcard-bot">
-      <span>${planned? `réalisé ${fmt(spent)} / prévu ${fmt(budget)}` : `réalisé ${fmt(spent)} · pas de budget`}</span>
+      <span>réalisé ${fmt(spent)} / prévu ${fmt(budget)}</span>
       <span>Prévu <input class="budinput" type="number" step="10" min="0" data-bud="${c}" value="${planned?budget:''}" placeholder="0"> €</span>
     </div>
   </div>`;
