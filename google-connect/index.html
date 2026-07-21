@@ -715,6 +715,16 @@ function viewDash(){
   }
 
   const plan = spendPlan(CUR);                       // reste à dépenser sur catégories budgétées
+  const remainRows = plan.budgeted.map(c=>{
+    const prevu=catBudget(c), real=s.byCat[c]||0, rest=prevu-real;
+    const ratio=prevu>0?Math.min(100,real/prevu*100):(real>0?100:0);
+    const over=real>prevu;
+    return `<div class="barrow">
+      <div class="nm"><span class="dot" style="background:${CAT_COLOR[c]}"></span>${CAT_LABEL[c]}</div>
+      <div class="track" title="${fmt(real)} / ${fmt(prevu)}"><div class="fill" style="width:${ratio}%;background:${over?'var(--bad)':(ratio>85?'var(--warn)':CAT_COLOR[c])}"></div></div>
+      <div class="amt ${rest<0?'neg':'pos'}">${fmt(rest)}</div>
+    </div>`;
+  }).join('');
   const tauxEp  = s.rev? (s.ep + s.reste)/s.rev : 0; // taux d'épargne (hors invest)
   const tauxInv = s.rev? s.inv/s.rev : 0;            // taux d'investissement
   const tauxTot = s.rev? s.epargneTot/s.rev : 0;     // total mis de côté
@@ -748,6 +758,22 @@ function viewDash(){
       <div class="val">${pct(tauxInv)}</div><div class="sub">mis de côté au total : ${pct(tauxTot)}</div></div>
     <div class="card kpi"><div class="label"><span class="dot" style="background:var(--c9)"></span>Épargne cumulée</div>
       <div class="val">${fmt(cum)}</div><div class="sub">au ${MONTHS_FR[m]} ${y} · départ ${fmt(STATE.settings.startSavings)}</div></div>
+  </div>
+
+  <div class="card section">
+    <div class="rowbetween">
+      <h2>💰 Reste à dépenser par catégorie — ${MONTHS_FR[m]}</h2>
+      ${plan.budgeted.length? `<span class="bignum ${plan.reste<0?'neg':'pos'}">${fmt(plan.reste)}</span>` : `<a href="#" id="goPrev2" class="btn ghost" style="padding:6px 12px;font-size:13px">Planifier →</a>`}
+    </div>
+    ${plan.budgeted.length? `
+      ${remainRows}
+      <div class="barrow" style="border-top:1px solid var(--border);margin-top:8px;padding-top:10px">
+        <div class="nm" style="font-weight:800">Total</div>
+        <div class="track" title="réalisé ${fmt(plan.realise)} / prévu ${fmt(plan.prevu)}"><div class="fill" style="width:${plan.prevu>0?Math.min(100,plan.realise/plan.prevu*100):0}%;background:${plan.reste<0?'var(--bad)':'var(--accent)'}"></div></div>
+        <div class="amt ${plan.reste<0?'neg':'pos'}" style="font-weight:800">${fmt(plan.reste)}</div>
+      </div>
+      <p class="hint" style="margin-top:8px">Prévu ${fmt(plan.prevu)} · réalisé ${fmt(plan.realise)}${plan.unplanned.length?` · <b>${fmt(plan.unplannedTotal)}</b> dépensés hors budget (${plan.unplanned.map(c=>CAT_LABEL[c]).join(', ')})`:''}</p>`
+    : `<div class="empty">Aucun budget prévu ce mois-ci. Va dans <b>Prévision</b> pour définir tes montants par catégorie.</div>`}
   </div>
 
   <div class="two section">
@@ -1303,6 +1329,7 @@ function bindView(){
   });
   const gt=document.getElementById('goTxns'); if(gt) gt.onclick=(e)=>{ e.preventDefault(); TAB='txns'; render(); };
   const gp=document.getElementById('goPrev'); if(gp) gp.onclick=(e)=>{ e.preventDefault(); TAB='prev'; render(); };
+  const gp2=document.getElementById('goPrev2'); if(gp2) gp2.onclick=(e)=>{ e.preventDefault(); TAB='prev'; render(); };
   // Ajout rapide
   const qaAdd=document.getElementById('qaAdd');
   const doQuickAdd=()=>{
