@@ -139,8 +139,11 @@ svg{display:block;max-width:100%}
 .catcard-top{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .catname{font-weight:700;font-size:13.5px;display:flex;align-items:center;gap:7px}
 .catreste{font-weight:750;font-size:13.5px;white-space:nowrap}
-.catcard-bot{display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--muted);gap:8px;margin-top:6px}
-.budinput{width:66px;padding:3px 6px;font-size:12px;text-align:right}
+.catcard-bot{display:flex;justify-content:space-between;align-items:flex-end;font-size:12px;color:var(--muted);gap:10px;margin-top:10px}
+.catcard-bot .catreal{flex-shrink:0;line-height:1.5}
+.catcard-bot .bud{display:flex;flex-direction:column;gap:4px;align-items:flex-end;flex:1;min-width:0}
+.catcard-bot .bud .l{font-size:11px;text-transform:uppercase;letter-spacing:.03em}
+.budinput{width:100%;max-width:140px;padding:7px 10px;font-size:15px;font-weight:700;text-align:right}
 .rowbetween{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
 .bignum{font-size:23px;font-weight:800;letter-spacing:-.02em}
 .miniremain{display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:13px;border-bottom:1px solid var(--border)}
@@ -1306,8 +1309,9 @@ function catRemainCard(c, s){
     </div>
     <div class="track" style="margin-top:9px"><div class="fill" style="width:${Math.min(100,ratio*100)}%;background:${col}"></div></div>
     <div class="catcard-bot">
-      <span>réalisé ${fmt(spent)} / prévu ${fmt(budget)}</span>
-      <span>Prévu <input class="budinput" type="number" step="10" min="0" data-bud="${c}" value="${planned?budget:''}" placeholder="0"> €</span>
+      <span class="catreal">réalisé ${fmt(spent)}<br>prévu ${fmt(budget)}</span>
+      <span class="bud"><span class="l">Prévu (€)</span>
+        <input class="budinput" type="number" step="10" min="0" data-bud="${c}" value="${planned?budget:''}" placeholder="0"></span>
     </div>
   </div>`;
 }
