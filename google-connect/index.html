@@ -127,6 +127,8 @@ svg{display:block;max-width:100%}
 .switch button.on{background:var(--accent);color:#fff}
 .chip{display:inline-flex;gap:6px;align-items:center;background:var(--panel-2);border:1px solid var(--border);border-radius:20px;padding:5px 11px;font-size:12.5px;font-weight:600}
 #acctBtn:hover{border-color:var(--accent)}
+#joinBar{max-width:1180px;margin:12px auto 0;padding:12px 16px;background:color-mix(in srgb,var(--accent) 12%,var(--panel));border:1px solid var(--accent);border-radius:12px;color:var(--text);font-size:14px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+#joinBar .x{margin-left:auto;cursor:pointer;color:var(--muted);font-weight:700}
 #errBar{max-width:1180px;margin:12px auto 0;padding:12px 16px;background:color-mix(in srgb,var(--bad) 12%,var(--panel));border:1px solid var(--bad);border-radius:12px;color:var(--text);font-size:13.5px;display:flex;gap:12px;align-items:flex-start}
 #errBar .x{margin-left:auto;cursor:pointer;color:var(--muted);font-weight:700;flex-shrink:0}
 #errBar code{word-break:break-all}
@@ -204,6 +206,7 @@ body.landing .tabs,body.landing #yearSel,body.landing #monthSel{display:none}
   </div>
 </header>
 
+<div id="joinBar" style="display:none"></div>
 <div id="errBar" style="display:none"></div>
 
 <div class="wrap">
@@ -296,6 +299,7 @@ let syncTimer=null, syncState='off'; // off|ok|syncing|error|offline|signedout
 let tokenClient=null, accessToken=null, tokenExp=0, gisReady=false;
 let googleUser = localStorage.getItem('mb_email')||'';
 let sheetId = localStorage.getItem('mb_sheetid')||'';
+let pendingBudgetId = (new URLSearchParams(location.search).get('budget'))||''; // invitation reçue par lien
 
 function clientId(){ return GOOGLE_CLIENT_ID || localStorage.getItem('mb_clientid') || ''; }
 function apiKey(){ return GOOGLE_API_KEY || localStorage.getItem('mb_apikey') || ''; }
@@ -519,6 +523,7 @@ async function pickerCallback(data){
   const doc=data.docs && data.docs[0]; if(!doc) return;
   sheetId=doc.id; localStorage.setItem('mb_sheetid',sheetId);
   localStorage.setItem('mb_shared','1');
+  pendingBudgetId='';
   setSync('syncing'); toast('Ouverture du budget partagé…');
   const r=await syncPull(); render();
   toast(r.ok?'Budget partagé chargé ✓':'Lecture impossible (accès refusé ?)');
@@ -527,6 +532,44 @@ function useOwnBudget(){
   localStorage.removeItem('mb_shared'); sheetId=''; localStorage.removeItem('mb_sheetid');
   setSync('syncing'); toast('Retour à ton budget…');
   ensureSpreadsheet().then(()=>syncPull()).then(()=>render());
+}
+
+/* --- Partager le budget par e-mail (donne l'accès automatiquement via l'API Drive) --- */
+function inviteLink(){ return location.origin + location.pathname + '?budget=' + encodeURIComponent(sheetId); }
+async function shareBudget(email){
+  if(!sheetId){ toast('Aucun budget à partager'); return {ok:false}; }
+  await ensureToken();
+  const msg = 'Rejoins mon budget partagé dans l\'app Mon Budget : ' + inviteLink();
+  const url = `https://www.googleapis.com/drive/v3/files/${sheetId}/permissions?sendNotificationEmail=true&emailMessage=${encodeURIComponent(msg)}&fields=id`;
+  const r = await gapiFetch(url, {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({role:'writer', type:'user', emailAddress: email})});
+  return {ok:true, data: await r.json()};
+}
+async function fetchCollaborators(){
+  if(!sheetId) return [];
+  try{
+    const r = await gapiFetch(`https://www.googleapis.com/drive/v3/files/${sheetId}/permissions?fields=permissions(id,emailAddress,role,displayName)`);
+    const j = await r.json();
+    return (j.permissions||[]).filter(p=>p.role!=='owner');
+  }catch(e){ return []; }
+}
+async function revokeCollaborator(pid){
+  await gapiFetch(`https://www.googleapis.com/drive/v3/files/${sheetId}/permissions/${pid}`, {method:'DELETE'});
+}
+// Ouvre le budget reçu par invitation (via le sélecteur, puis mémorise)
+function openInvitedBudget(){ openSharedBudget(); }
+async function loadCollabList(){
+  const el=document.getElementById('collabList'); if(!el) return;
+  const list=await fetchCollaborators();
+  if(!list.length){ el.innerHTML='<p class="hint">Personne d\'autre n\'a accès pour l\'instant.</p>'; return; }
+  el.innerHTML='<div class="hint" style="margin-bottom:4px">Ont accès :</div>'+list.map(p=>
+    `<div class="miniremain"><span>${esc(p.displayName||p.emailAddress||'Utilisateur')}${p.emailAddress&&p.displayName?` <span class="hint">${esc(p.emailAddress)}</span>`:''}</span>
+     <button class="btn ghost" data-revoke="${esc(p.id)}" style="padding:4px 10px;font-size:12px;color:var(--bad);border-color:var(--bad)">Retirer</button></div>`).join('');
+  el.querySelectorAll('[data-revoke]').forEach(b=> b.onclick=async()=>{
+    if(!confirm('Retirer l\'accès de cette personne ?')) return;
+    try{ await revokeCollaborator(b.dataset.revoke); toast('Accès retiré'); loadCollabList(); }
+    catch(e){ toast('Échec'); }
+  });
 }
 async function initSync(){
   updateSyncChip();
@@ -675,8 +718,19 @@ function viewLanding(){
     <p class="hint">En te connectant, un fichier « Mon Budget — données » est créé dans ton Drive. L'app n'accède qu'à ce fichier.</p>
   </div>`;
 }
+function updateJoinBar(){
+  const b=document.getElementById('joinBar'); if(!b) return;
+  const show = accessToken && pendingBudgetId && pendingBudgetId!==sheetId;
+  if(!show){ b.style.display='none'; return; }
+  b.style.display='flex';
+  b.innerHTML=`<span>📩 <b>Un budget partagé t'attend.</b> Ouvre-le pour le suivre à deux.</span>
+    <button class="btn" id="joinOpen" style="padding:7px 14px;font-size:13.5px">Ouvrir le budget partagé</button>
+    <span class="x" id="joinDismiss" title="Plus tard">✕</span>`;
+  const o=document.getElementById('joinOpen'); if(o) o.onclick=()=>openInvitedBudget();
+  const d=document.getElementById('joinDismiss'); if(d) d.onclick=()=>{ pendingBudgetId=''; updateJoinBar(); };
+}
 function render(){
-  renderTabs(); fillSelectors();
+  renderTabs(); fillSelectors(); updateJoinBar();
   document.body.classList.toggle('landing', isLanding());
   const v = document.getElementById('view');
   if(isLanding()){ v.innerHTML = viewLanding(); bindView(); return; }
@@ -1123,10 +1177,22 @@ function viewSettings(){
         <button class="btn ghost" id="gOut" style="color:var(--bad);border-color:var(--bad)">Se déconnecter</button>
       </div>
       <div style="border-top:1px solid var(--border);margin:14px 0 12px"></div>
-      <h3 style="font-size:14px;margin-bottom:6px">👥 Budget partagé</h3>
-      <p class="hint">Ouvre le budget qu'une autre personne t'a partagé dans Google Drive (elle doit t'avoir donné l'accès en modification). Vous éditez alors le même budget.</p>
+      <h3 style="font-size:14px;margin-bottom:6px">👥 Partager ce budget</h3>
+      ${localStorage.getItem('mb_shared')
+        ? `<p class="hint">Tu utilises un budget qui t'a été partagé. Reviens à ton budget pour inviter des personnes.</p>`
+        : `<p class="hint">Invite quelqu'un par e-mail : il reçoit un lien et rejoint <b>ce budget</b> en un clic. Vous le suivez alors à deux.</p>
+      <div class="grid" style="grid-template-columns:1fr auto;gap:8px;margin-top:10px">
+        <input type="email" id="shEmail" placeholder="email@exemple.com" autocomplete="off">
+        <button class="btn" id="shBtn">✉️ Inviter</button>
+      </div>
+      <div id="collabList" style="margin-top:10px"></div>
+      <p class="hint" style="margin-top:8px">Lien direct : <code style="user-select:all">${esc(inviteLink())}</code> <a href="#" id="copyLink">copier</a></p>`}
+
+      <div style="border-top:1px solid var(--border);margin:14px 0 12px"></div>
+      <h3 style="font-size:14px;margin-bottom:6px">📂 Rejoindre un budget partagé</h3>
+      <p class="hint">Quelqu'un t'a partagé son budget ? Ouvre-le ici (une fois, puis c'est mémorisé).</p>
       <div class="toolbar" style="margin-top:10px">
-        <button class="btn ghost" id="gPick">📂 Ouvrir un budget partagé</button>
+        <button class="btn ghost" id="gPick">Ouvrir un budget partagé</button>
         ${localStorage.getItem('mb_shared')?'<button class="btn ghost" id="gOwn">↩ Revenir à mon budget</button>':''}
       </div>
       ${apiKey()?'':`
@@ -1436,6 +1502,20 @@ function bindView(){
   };
   const gPick=document.getElementById('gPick'); if(gPick) gPick.onclick=()=>openSharedBudget();
   const gOwn=document.getElementById('gOwn'); if(gOwn) gOwn.onclick=()=>{ if(confirm('Revenir à ton budget personnel ?')) useOwnBudget(); };
+  // --- Inviter au budget par e-mail ---
+  const shBtn=document.getElementById('shBtn');
+  if(shBtn) shBtn.onclick=async()=>{
+    const inp=document.getElementById('shEmail'); const email=(inp.value||'').trim();
+    if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ toast('E-mail invalide'); inp.focus(); return; }
+    shBtn.disabled=true; toast('Invitation en cours…');
+    try{ await shareBudget(email); inp.value=''; toast('Invitation envoyée à '+email+' ✓'); loadCollabList(); }
+    catch(e){ toast(/403|permission/i.test(e.message)?'Accès refusé (droits Drive)':'Échec de l\'invitation'); }
+    finally{ shBtn.disabled=false; }
+  };
+  const shEmail=document.getElementById('shEmail'); if(shEmail) shEmail.onkeydown=(ev)=>{ if(ev.key==='Enter'){ev.preventDefault(); shBtn&&shBtn.click();} };
+  const cl=document.getElementById('copyLink'); if(cl) cl.onclick=(e)=>{ e.preventDefault(); navigator.clipboard.writeText(inviteLink()).then(()=>toast('Lien copié')); };
+  if(document.getElementById('collabList')) loadCollabList();
+  bindTooltips();
   const gSaveKey=document.getElementById('gSaveKey'); if(gSaveKey) gSaveKey.onclick=()=>{
     const v=(document.getElementById('gApiKey').value||'').trim();
     if(!/^AIza[0-9A-Za-z_\-]{20,}$/.test(v)){ toast('Clé API invalide (commence par AIza…)'); return; }
